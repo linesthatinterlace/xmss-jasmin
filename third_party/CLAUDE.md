@@ -1,7 +1,12 @@
 # CLAUDE.md — third_party/
 
 This directory contains third-party reference material used **only** during development.
-No implementation in `impl/` depends on anything here at build time.
+No implementation in `impl/` depends on anything here at build time. Everything here is a submodule.
+
+## libjade
+
+User added this manually. When Claude reads this file, need to write a summary of this submodule
+here and replace this description.
 
 ## xmss-reference
 

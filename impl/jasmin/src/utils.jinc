@@ -1,0 +1,69 @@
+/* utils.jinc — XMSS utility functions
+ *
+ * ull_to_bytes, bytes_to_ull: big-endian encoding (RFC 8391 §2.4).
+ * memzero: secure memory clearing.
+ * ct_memcmp: constant-time comparison for verification.
+ *
+ * All functions take pointer + inline int length. The inline int ensures
+ * loop bounds are compile-time constants (Jasmin rule J4).
+ */
+
+/* ull_to_bytes — encode val as len-byte big-endian at out[0..len-1].
+ * len must be a compile-time constant (inline int). */
+inline fn __ull_to_bytes(reg u64 out, inline int len, reg u64 val) {
+  reg u8 b;
+  inline int i;
+  for i = 0 to len {
+    b = (8u)val;
+    [:u8 out + len - 1 - i] = b;
+    val >>= 8;
+  }
+}
+
+/* bytes_to_ull — decode len bytes big-endian from inp[0..len-1].
+ * len must be a compile-time constant, <= 8. */
+inline fn __bytes_to_ull(reg u64 inp, inline int len) -> reg u64 {
+  reg u64 val tmp;
+  reg u8 b;
+  inline int i;
+  val = 0;
+  for i = 0 to len {
+    val <<= 8;
+    b = [:u8 inp + i];
+    tmp = (64u)b;
+    val |= tmp;
+  }
+  return val;
+}
+
+/* memzero — zero len bytes at ptr.
+ * len must be a compile-time constant. */
+inline fn __memzero(reg u64 p, inline int len) {
+  inline int i;
+  /* Zero in u64 chunks, then remaining bytes */
+  for i = 0 to len / 8 {
+    [:u64 p + 8 * i] = 0;
+  }
+  for i = 0 to len % 8 {
+    [:u8 p + 8 * (len / 8) + i] = 0;
+  }
+}
+
+/* ct_memcmp — constant-time compare of len bytes at a and b.
+ * Returns 0 if equal, non-zero if different.
+ * Must not use secret-dependent branches — ORs all byte XORs.
+ * len must be a compile-time constant. */
+inline fn __ct_memcmp(reg u64 a, reg u64 b, inline int len) -> reg u64 {
+  reg u64 diff tmp;
+  reg u8 ab bb;
+  inline int i;
+  diff = 0;
+  for i = 0 to len {
+    ab = [:u8 a + i];
+    bb = [:u8 b + i];
+    ab ^= bb;
+    tmp = (64u)ab;
+    diff |= tmp;
+  }
+  return diff;
+}

@@ -1,0 +1,83 @@
+/* test_address.jazz — export wrapper to test address.jinc from C */
+
+require "../src/address.jinc"
+
+/* Exercise all ADRS setters and serialize to bytes.
+ * out: pointer to 32-byte output buffer.
+ * Sets: layer=3, tree=0x123456789ABCDEF0, type=OTS(0), ots=42, chain=7, hash=1.
+ * Returns 0 on success. */
+export fn test_adrs_to_bytes(reg u64 out) -> reg u64 {
+  stack u32[8] adrs;
+  stack u8[32] buf;
+  reg u32 v32;
+  reg u64 v64;
+  reg u64 r;
+  inline int i;
+
+  _ = #init_msf();
+
+  adrs = __adrs_zero();
+
+  v32 = 3;
+  adrs = __adrs_set_layer(adrs, v32);
+
+  v64 = 0x123456789ABCDEF0;
+  adrs = __adrs_set_tree(adrs, v64);
+
+  adrs = __adrs_set_type(adrs, 0); /* OTS type */
+
+  v32 = 42;
+  adrs = __adrs_set_ots(adrs, v32);
+
+  v32 = 7;
+  adrs = __adrs_set_chain(adrs, v32);
+
+  v32 = 1;
+  adrs = __adrs_set_hash(adrs, v32);
+
+  buf = __adrs_to_bytes(adrs);
+
+  /* Copy buf to output */
+  for i = 0 to 4 {
+    v64 = (64u) buf[:u64 i];
+    [:u64 out + 8 * i] = v64;
+  }
+
+  ?{}, r = #set0();
+  return r;
+}
+
+/* Test that set_type zeros words 4-7.
+ * out: pointer to 32-byte output buffer.
+ * Sets ots=99 then changes type to LTREE(1), which must zero word 4.
+ * Returns 0 on success. */
+export fn test_adrs_set_type_zeroes(reg u64 out) -> reg u64 {
+  stack u32[8] adrs;
+  stack u8[32] buf;
+  reg u32 v32;
+  reg u64 v64;
+  reg u64 r;
+  inline int i;
+
+  _ = #init_msf();
+
+  adrs = __adrs_zero();
+
+  /* Set OTS type and fill word 4 */
+  adrs = __adrs_set_type(adrs, 0);
+  v32 = 99;
+  adrs = __adrs_set_ots(adrs, v32);
+
+  /* Now set LTREE type — must zero words 4-7 */
+  adrs = __adrs_set_type(adrs, 1);
+
+  buf = __adrs_to_bytes(adrs);
+
+  for i = 0 to 4 {
+    v64 = (64u) buf[:u64 i];
+    [:u64 out + 8 * i] = v64;
+  }
+
+  ?{}, r = #set0();
+  return r;
+}

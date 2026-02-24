@@ -1,0 +1,54 @@
+/* test_utils.jazz — export wrappers to test utils.jinc from C */
+
+require "../src/utils.jinc"
+
+/* Write val as 4-byte big-endian to out. */
+export fn test_ull_to_bytes_4(reg u64 out, reg u64 val) -> reg u64 {
+  reg u64 r;
+  _ = #init_msf();
+  __ull_to_bytes(out, 4, val);
+  ?{}, r = #set0();
+  return r;
+}
+
+/* Write val as 8-byte big-endian to out. */
+export fn test_ull_to_bytes_8(reg u64 out, reg u64 val) -> reg u64 {
+  reg u64 r;
+  _ = #init_msf();
+  __ull_to_bytes(out, 8, val);
+  ?{}, r = #set0();
+  return r;
+}
+
+/* Read 4-byte big-endian from inp into return value. */
+export fn test_bytes_to_ull_4(reg u64 inp) -> reg u64 {
+  reg u64 r;
+  _ = #init_msf();
+  r = __bytes_to_ull(inp, 4);
+  return r;
+}
+
+/* Read 8-byte big-endian from inp into return value. */
+export fn test_bytes_to_ull_8(reg u64 inp) -> reg u64 {
+  reg u64 r;
+  _ = #init_msf();
+  r = __bytes_to_ull(inp, 8);
+  return r;
+}
+
+/* CT compare 32 bytes at a and b. Returns 0 if equal. */
+export fn test_ct_memcmp_32(reg u64 a, reg u64 b) -> reg u64 {
+  reg u64 r;
+  _ = #init_msf();
+  r = __ct_memcmp(a, b, 32);
+  return r;
+}
+
+/* Zero 32 bytes at ptr. */
+export fn test_memzero_32(reg u64 p) -> reg u64 {
+  reg u64 r;
+  _ = #init_msf();
+  __memzero(p, 32);
+  ?{}, r = #set0();
+  return r;
+}

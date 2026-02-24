@@ -1,0 +1,105 @@
+/* address.jinc — ADRS manipulation (RFC 8391 §2.5)
+ *
+ * ADRS is a u32[8] on the stack. Words:
+ *   w[0] layer, w[1] tree_hi, w[2] tree_lo, w[3] type,
+ *   w[4..7] type-specific (zeroed by set_type).
+ *
+ * All functions are inline fn — no call overhead, no export.
+ */
+
+inline fn __adrs_zero() -> stack u32[8] {
+  stack u32[8] adrs;
+  inline int i;
+  for i = 0 to 8 {
+    adrs[i] = 0;
+  }
+  return adrs;
+}
+
+inline fn __adrs_set_layer(stack u32[8] adrs, reg u32 layer)
+    -> stack u32[8] {
+  adrs[0] = layer;
+  return adrs;
+}
+
+inline fn __adrs_set_tree(stack u32[8] adrs, reg u64 tree)
+    -> stack u32[8] {
+  reg u64 hi64;
+  reg u32 lo;
+  lo = (32u)tree;
+  adrs[2] = lo;
+  hi64 = tree;
+  hi64 >>= 32;
+  lo = (32u)hi64;
+  adrs[1] = lo;
+  return adrs;
+}
+
+inline fn __adrs_set_type(stack u32[8] adrs, inline int t)
+    -> stack u32[8] {
+  adrs[3] = t;
+  /* RFC 8391 §2.5: zero type-specific fields on type change */
+  adrs[4] = 0;
+  adrs[5] = 0;
+  adrs[6] = 0;
+  adrs[7] = 0;
+  return adrs;
+}
+
+inline fn __adrs_set_ots(stack u32[8] adrs, reg u32 ots)
+    -> stack u32[8] {
+  adrs[4] = ots;
+  return adrs;
+}
+
+inline fn __adrs_set_chain(stack u32[8] adrs, reg u32 chain)
+    -> stack u32[8] {
+  adrs[5] = chain;
+  return adrs;
+}
+
+inline fn __adrs_set_hash(stack u32[8] adrs, reg u32 h)
+    -> stack u32[8] {
+  adrs[6] = h;
+  return adrs;
+}
+
+inline fn __adrs_set_ltree(stack u32[8] adrs, reg u32 ltree)
+    -> stack u32[8] {
+  adrs[4] = ltree;
+  return adrs;
+}
+
+inline fn __adrs_set_tree_height(stack u32[8] adrs, reg u32 height)
+    -> stack u32[8] {
+  adrs[5] = height;
+  return adrs;
+}
+
+inline fn __adrs_set_tree_index(stack u32[8] adrs, reg u32 index)
+    -> stack u32[8] {
+  adrs[6] = index;
+  return adrs;
+}
+
+inline fn __adrs_set_key_and_mask(stack u32[8] adrs, reg u32 km)
+    -> stack u32[8] {
+  adrs[7] = km;
+  return adrs;
+}
+
+/* Serialise ADRS to 32 bytes in big-endian.
+ * Uses #BSWAP_32 (x86-specific). For RISC-V, replace with:
+ *   ((w >> 24) | ((w >> 8) & 0xff00) | ((w << 8) & 0xff0000) | (w << 24))
+ */
+inline fn __adrs_to_bytes(stack u32[8] adrs) -> stack u8[32] {
+  stack u8[32] buf;
+  reg u32 w;
+  inline int i;
+  for i = 0 to 8 {
+    w = adrs[i];
+    w = #BSWAP_32(w);
+    buf[:u32 i] = w;
+  }
+  return buf;
+}
