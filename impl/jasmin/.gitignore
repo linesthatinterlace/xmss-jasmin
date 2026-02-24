@@ -1,0 +1,8 @@
+# Generated assembly
+*.s
+
+# Compiled test binaries (no extension or *_bin suffix)
+test/test_address_bin
+test/test_utils_bin
+test/test_sha256
+
