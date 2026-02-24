@@ -186,6 +186,21 @@ These parallel the C implementation's J1–J8 rules:
 - formosa-crypto organisation: https://github.com/formosa-crypto
 - **formosa-xmss**: https://github.com/formosa-crypto/formosa-xmss — a human-authored Jasmin implementation of XMSS, subject to active research. Scope and parameter coverage TBD. **Do not treat as a template or copy from it** — our implementation is independent — but it is prior art worth being aware of and potentially cross-validating against.
 
+## WWW/EBI (accumulated session learnings)
+
+### What Went Well
+- **Non-inline `fn` for hot loop bodies**: Using `fn` (not `inline fn`) for `gen_chain` and `expand_seed_one` prevents compiler stack overflow from inlining hash code 67× in unrolled loops. Do this for any function called inside a `for i = 0 to LEN` or equivalent while loop.
+- **Inline wrappers for the stack↔reg-u64 bridge**: The `__xmss_F_rp` / `__xmss_PRF_keygen_rp` pattern (inline fn accepting `reg ptr`/`stack`, copying into `ibuf`, calling the inner hash primitive) cleanly separates the algorithm layer from the hash layer's pointer conventions.
+- **Sign→pk_from_sig roundtrip as first test**: This single test exercises gen_pk, sign, and pk_from_sig together, catching most algorithmic bugs immediately.
+- **Cataloguing compiler pitfalls in SKILL.md**: Each hard-won lesson (single-region rule, constant-minus-reg, variable shifts, etc.) documented with concrete examples prevents repeating mistakes.
+
+### Even Better If
+- **Study libjade patterns BEFORE writing code**: The `reg ptr` single-region rule would have been obvious from reading libjade's `_blocks_0_ref` SHA-256 function upfront. Always read canonical examples in libjade before designing a new function's signature.
+- **Reason about compiler behaviour before trial-and-error**: When hitting an error, stop and think about *why* it occurs (what does the compiler need to prove? what invariant is violated?). Don't try random fixes hoping one sticks.
+- **Anticipate code size**: 67 iterations × inlined SHA-256 = obvious blowup. Think about inlining depth before choosing `inline fn` vs `fn`.
+- **Test each function in isolation**: Compile and test `gen_chain` alone before building `gen_pk` on top of it. Small compilation units catch errors faster and with clearer messages.
+- **Use `reg u64` for loop counters from the start**: `reg u32` counters cause SIB addressing issues and require `(64u)` casts everywhere. Default to `reg u64` for any counter used in pointer arithmetic or array indexing.
+
 ## Open questions / future work
 
 - Decide on build system (simple Makefile vs CMake integration with the rest of the project).

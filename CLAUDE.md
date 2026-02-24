@@ -42,6 +42,10 @@ Analyses which RISC-V ISA extensions `libxmss.a` actually requires, informing th
 
 See `impl/jasmin/CLAUDE.md` for how these findings affect the Jasmin port strategy.
 
+## WWW/EBI
+
+WWW/EBI (What Went Well / Even Better If) is a reflective evaluation framework. After completing a significant piece of work, write WWW items (things that worked, to do more of) and EBI items (things to improve next time). Store these in the relevant implementation's CLAUDE.md so future sessions benefit.
+
 ## Cross-cutting rules
 
 These apply to ALL implementations regardless of language:
