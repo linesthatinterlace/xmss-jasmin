@@ -111,12 +111,13 @@ v = (u64)[src + 8 * i];      // old: same thing (seen in libjade)
 ```
 
 ### Runtime array indexing
-When the index is a `reg` variable (not `inline int`), cast it with `(int)`:
+When the index is a `reg` variable (not `inline int`), cast it with `(uint)`:
 ```jasmin
-tmp = Kp[(int)tr];            // reg ptr u32[64] Kp; reg u64 tr
-tmp = W[(int)tr];             // stack u32[64] W; reg u64 tr
-sblocks[u8 (int)i] = v;      // byte-level write into u32 array
+tmp = Kp[(uint)tr];           // reg ptr u32[64] Kp; reg u64 tr
+tmp = W[(uint)tr];             // stack u32[64] W; reg u64 tr
+p[(uint)idx] = b;              // reg ptr u8[32] p; reg u64 idx
 ```
+Note: `(int)` is deprecated in Jasmin 2025.06; use `(uint)` for unsigned indices.
 
 ## Operators and intrinsics
 
@@ -149,6 +150,97 @@ tmp = SHA256_K[i];         // inline int i
 reg ptr u32[64] Kp;
 Kp = SHA256_K;
 tmp = Kp[(int)tr];         // reg u64 tr
+```
+
+## Pointer types and conversions (Jasmin 2025.06)
+
+This is the most counterintuitive part of Jasmin. Test results are definitive.
+
+### What works
+```jasmin
+// stack → reg ptr  (assign stack array to reg ptr — valid)
+stack u8[32] buf;
+reg ptr u8[32] p;
+p = buf;                   // OK: p now points to buf
+
+// reg ptr element access with compile-time index 0
+b = p[0];                  // OK
+p[0] = b;                  // OK (must return p if modified)
+
+// reg ptr element access with runtime index
+b = p[(uint)reg_u64];     // OK: runtime indexing
+p[(uint)reg_u64] = b;      // OK: runtime write
+
+// reg ptr element write at non-zero compile-time index (in fn that returns ptr)
+fn set_km1(reg ptr u8[32] p) -> reg ptr u8[32] {
+  p[31] = 1;               // OK IF you return p
+  return p;
+}
+
+// reg ptr u32[8] element read/write
+fn use_adrs(reg ptr u32[8] a) -> reg ptr u32[8] {
+  a[7] = 0;                // OK (return the ptr)
+  return a;
+}
+
+// inline fn CAN take stack arrays AND reg ptr as params
+inline fn __foo(stack u8[32] buf, reg ptr u8[32] p) -> stack u8[32] { ... }
+
+// inline int can be passed where reg u32 is expected
+adrs = __adrs_set_chain(adrs, i);  // i is inline int, param is reg u32 — OK
+```
+
+### What does NOT work (confirmed failures)
+```jasmin
+// DOES NOT WORK: no way to get reg u64 from a stack variable address
+(u64) &buf            // parse error
+#LEA(buf)             // type error: can't cast u8[32] to u64
+#LEA(buf[0])          // type error: can't cast u8 to u64
+
+// DOES NOT WORK: no way to cast reg ptr to reg u64
+reg u64 r = (u64) p;  // parse error
+r = p;                // type error
+
+// DOES NOT WORK: no way to cast reg u64 to reg ptr
+p = (ptr u8[32]) r;   // parse error
+
+// DOES NOT WORK: reg ptr element read with non-zero compile-time index
+// (compiler bug — triggers internal error "linearization: check_rexpr")
+b = p[28];            // INTERNAL COMPILER ERROR in jasminc 2025.06.3
+
+// DOES NOT WORK: reg ptr u8[N] as arg to fn expecting reg u64
+__xmss_PRF(out, key, p);   // type error (p is reg ptr u8[32], expects reg u64)
+```
+
+### Consequence for algorithm layer
+**There is no way to pass a stack-local array to a function expecting `reg u64`.**
+
+The algorithm layer (wots.jinc, etc.) CANNOT call the existing `fn __xmss_F(reg u64 ...)`
+with locally computed stack arrays as arguments.
+
+**Solution pattern**: Add `inline fn` wrappers that accept `stack u8[N]` / `reg ptr u8[N]`
+and copy data into `ibuf` before calling the inner hash primitives. These wrappers live
+alongside the hash backend (or in the algorithm file) and are used exclusively by the
+algorithm layer. The external `fn __xmss_F(reg u64 ...)` is kept for C-callable tests.
+
+```jasmin
+// Algorithm-layer PRF: key and m passed as reg ptr (from stack arrays via = assignment)
+inline fn __sha256_prf_rp(inline int domain,
+                           reg ptr u8[N] key_rp,
+                           reg ptr u8[32] m_rp) -> stack u8[N] {
+  stack u8[96] ibuf;
+  reg u8 b;
+  inline int i;
+  for i = 0 to N - 1 { ibuf[i] = 0; }
+  ibuf[N - 1] = domain;
+  for i = 0 to N { b = key_rp[i]; ibuf[N + i] = b; }
+  for i = 0 to 32 { b = m_rp[i]; ibuf[2 * N + i] = b; }
+  return __sha256_hash96(ibuf);
+}
+// Caller:
+stack u8[N] seed_buf;    reg ptr u8[N] seed_rp;    seed_rp = seed_buf;
+stack u8[32] adrs_bytes; reg ptr u8[32] abp;        abp = adrs_bytes;
+result = __sha256_prf_rp(3, seed_rp, abp);   // OK
 ```
 
 ## Pitfalls

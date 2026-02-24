@@ -883,22 +883,126 @@ int jade_xmss_verify(const uint8_t *msg, size_t msglen,
 
 ## 8. Calling hash functions from algorithm code
 
+**Updated after testing with Jasmin 2025.06.3.**
+
+### The problem
+
 The hash backend `fn`s take `reg u64` pointer arguments. The algorithm code
-has data in `stack u8[N]` local arrays. To pass a stack array to a function
-expecting `reg u64`:
+has data in `stack u8[N]` local arrays. The original blueprint claimed that
+taking the address of a stack variable via `(u64) &node` was valid. **This is
+wrong** — tested and confirmed to fail with a parse error in Jasmin 2025.06.3.
+
+There is **no way** to obtain a `reg u64` from a stack-local variable's address
+in current Jasmin:
 
 ```jasmin
-stack u8[N] node;
-stack u8[32] adrs_bytes;
-reg u64 node_ptr;
-node_ptr = (u64) &node;   /* take address of stack array */
-__xmss_F(out_ptr, seed_ptr, adrs_bytes_ptr, node_ptr);
+// ALL of these fail in Jasmin 2025.06.3:
+node_ptr = (u64) &node;          // parse error
+node_ptr = #LEA(node);           // type error: can't cast u8[N] to u64
+node_ptr = #LEA(node[0]);        // type error: can't cast u8 to u64
 ```
 
-Taking the address of a stack variable (`(u64) &var`) is valid in Jasmin.
-Be careful: after `__xmss_F` writes to `out_ptr` (which may alias `node_ptr`),
-the Jasmin compiler may not know about the alias — use separate buffers for
-input and output in `gen_chain`.
+Likewise, `reg ptr T[N]` and `reg u64` are entirely separate types — no cast
+exists in either direction.
+
+**Additional quirk**: `p[28]` with a compile-time non-zero index on a
+`reg ptr u8[32]` triggers an **internal compiler error** in Jasmin 2025.06.3
+("linearization: check_rexpr"). Use runtime indexing `p[(uint)idx]` instead,
+or only write with compile-time index 0. This appears to be a Jasmin bug.
+
+### The solution: `reg ptr`-based inline wrappers
+
+The algorithm layer calls **inline wrapper functions** that accept `reg ptr`
+arguments (obtainable from stack arrays via `p = buf`) and copy data
+element-by-element into a local `ibuf` before calling the inner hash primitives.
+
+```jasmin
+/* Algorithm-layer PRF wrapper: takes reg ptr u8[N] for key and m.
+ * Caller obtains reg ptr via:  reg ptr u8[N] p; p = stack_buf;  */
+inline fn __sha256_prf_rp(inline int domain,
+                           reg ptr u8[N] key_rp,
+                           reg ptr u8[32] m_rp) -> stack u8[N] {
+  stack u8[96] ibuf;
+  reg u8 b;
+  inline int i;
+  for i = 0 to N - 1 { ibuf[i] = 0; }
+  ibuf[N - 1] = domain;
+  for i = 0 to N    { b = key_rp[i]; ibuf[N + i] = b; }
+  for i = 0 to 32   { b = m_rp[i];  ibuf[2 * N + i] = b; }
+  return __sha256_hash96(ibuf);
+}
+
+/* Algorithm-layer F wrapper. adrs_bytes is a stack u8[32] with hash field set.
+ * F = SHA-256(toByte(0,N) || PRF(seed, adrs[km=0]) || (node XOR PRF(seed, adrs[km=1]))) */
+inline fn __xmss_F_native(stack u8[N] node,
+                           reg ptr u8[N] seed_rp,
+                           stack u8[32] adrs_bytes) -> stack u8[N] {
+  stack u8[32] akm0 akm1;
+  reg ptr u8[32] akm0p akm1p;
+  stack u8[N] prf_key bitmask;
+  stack u8[96] ibuf;
+  reg u8 b1 b2;
+  inline int i;
+
+  /* Build km=0 and km=1 copies of adrs_bytes */
+  for i = 0 to 32 { b1 = adrs_bytes[i]; akm0[i] = b1; akm1[i] = b1; }
+  /* Set km field (bytes 28-31 big-endian) */
+  akm0[28] = 0; akm0[29] = 0; akm0[30] = 0; akm0[31] = 0;
+  akm1[28] = 0; akm1[29] = 0; akm1[30] = 0; akm1[31] = 1;
+  akm0p = akm0; akm1p = akm1;
+
+  prf_key = __sha256_prf_rp(0x03, seed_rp, akm0p);
+  bitmask = __sha256_prf_rp(0x03, seed_rp, akm1p);
+
+  for i = 0 to N - 1 { ibuf[i] = 0; }
+  ibuf[N - 1] = 0x00;   /* domain for F */
+  for i = 0 to N { b1 = prf_key[i]; ibuf[N + i] = b1; }
+  for i = 0 to N { b1 = node[i]; b2 = bitmask[i]; b1 ^= b2; ibuf[2 * N + i] = b1; }
+
+  return __sha256_hash96(ibuf);
+}
+```
+
+These wrappers are defined in `src/hash/sha256_n32.jinc` alongside the existing
+`fn __xmss_F(reg u64 ...)` (which remains for C-callable export tests).
+
+### `reg ptr` rules (confirmed in Jasmin 2025.06.3)
+
+```jasmin
+// Obtain reg ptr from stack array:
+stack u8[32] buf;
+reg ptr u8[32] p;
+p = buf;                      // OK
+
+// Element read/write — compile-time index 0 only (non-zero triggers compiler bug):
+b = p[0]; p[0] = b;           // OK
+
+// Runtime element access (always safe):
+b = p[(uint)reg_u64];         // OK for read
+p[(uint)reg_u64] = b;         // OK for write
+
+// Non-zero compile-time write inside a fn that returns the ptr:
+fn set_byte(reg ptr u8[32] p, reg u8 b) -> reg ptr u8[32] {
+  p[(uint)28_u64] = b;        // use runtime cast to avoid compile-time-index bug
+  return p;
+}
+```
+
+### Algorithm function design
+
+Given these constraints, the algorithm functions in `wots.jinc` are structured as:
+
+- **External-facing `fn`** (`__wots_gen_pk`, `__wots_sign`, `__wots_pk_from_sig`):
+  take `reg u64` for caller-provided buffers, `reg ptr u32[8]` for the ADRS struct.
+  Copy seed/sk_seed from `reg u64` into local `stack u8[N]` then take `reg ptr`.
+
+- **Internal helper `inline fn`** (`__gen_chain_native`, `__base_w`,
+  `__wots_checksum`): take `stack u8[N]`, `stack u32[8]`, `reg ptr u8[N]` as
+  appropriate for inline context. The outer `for i = 0 to LEN` loops use
+  `inline int i` (fully unrolled), giving compile-time offsets for output writes.
+
+- No large `sk[LEN*N]` scratch buffer: compute one chain at a time per `inline int`
+  loop iteration (scratch `stack u8[N] sk_i` reused each iteration).
 
 ---
 
