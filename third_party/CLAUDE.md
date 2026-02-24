@@ -5,8 +5,43 @@ No implementation in `impl/` depends on anything here at build time. Everything 
 
 ## libjade
 
-User added this manually. When Claude reads this file, need to write a summary of this submodule
-here and replace this description.
+A git submodule tracking the [libjade](https://github.com/formosa-crypto/libjade)
+cryptographic library — a formally verified, high-assurance collection of
+cryptographic primitives written in Jasmin. Developed by the formosa-crypto team.
+
+**Pinned to**: `release/2023.05-2` (the latest tagged release). HEAD is mid-refactor
+(`src/` renamed to `oldsrc-should-delete/`), so do not update past this tag without
+checking that the directory layout is stable.
+
+**Status**: Read-only reference. Used as a source of idiomatic Jasmin patterns
+for the `impl/jasmin/` port. Any code adapted from libjade must be cited
+(file and function) in a comment at the point of use.
+
+### What we use from it
+
+- `src/crypto_hash/sha256/amd64/ref/sha256.jinc` — reference Jasmin SHA-256
+  implementation. Our `impl/jasmin/sha256_n32.jinc` was informed by this but
+  reimplemented from scratch for XMSS-specific requirements (fixed-length
+  inputs, PRF/F/H wrappers, no heap allocation).
+- `src/crypto_hash/sha256/amd64/ref/sha256_globals.jinc` — SHA-256 round
+  constants (`K`) and initial hash values (`H`). These are standard FIPS 180-4
+  constants.
+
+### Other contents (not currently used)
+
+SHA-512, SHA-3, Kyber/ML-KEM, Dilithium/ML-DSA, Curve25519, Poly1305,
+ChaCha20, XSalsa20, and more. These may be useful reference material for
+future Jasmin work but are not dependencies of our XMSS port.
+
+### Updating
+
+```bash
+cd third_party/libjade
+git fetch origin
+git checkout <tag>
+cd ../..
+git add third_party/libjade
+```
 
 ## xmss-reference
 
