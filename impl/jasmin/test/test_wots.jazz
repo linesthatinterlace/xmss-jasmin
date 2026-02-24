@@ -1,0 +1,106 @@
+/* test_wots.jazz — test harness for WOTS+ functions */
+
+param int N       = 32;
+param int W       = 16;
+param int LOG2_W  = 4;
+param int LEN1    = 64;
+param int LEN2    = 3;
+param int LEN     = 67;
+
+require "../src/address.jinc"
+require "../src/hash/sha256_n32.jinc"
+require "../src/wots.jinc"
+
+/* Export wots_gen_pk for C test harness */
+export fn test_wots_gen_pk(reg u64 pk, reg u64 sk_seed, reg u64 pub_seed,
+                           reg u64 adrs_ptr) -> reg u64 {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_rp;
+  reg u32 w;
+  reg u64 r;
+  inline int i;
+
+  _ = #init_msf();
+
+  for i = 0 to 8 {
+    w = [:u32 adrs_ptr + 4 * i];
+    w = #BSWAP_32(w);
+    adrs[i] = w;
+  }
+
+  adrs_rp = adrs;
+  __wots_gen_pk(pk, sk_seed, pub_seed, adrs_rp);
+
+  ?{}, r = #set0();
+  return r;
+}
+
+/* Export wots_sign for C test harness */
+export fn test_wots_sign(reg u64 sig, reg u64 msg, reg u64 sk_seed,
+                         reg u64 pub_seed, reg u64 adrs_ptr) -> reg u64 {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_sig s_msg s_sk s_pub;
+  reg u32 w;
+  reg u64 r;
+  inline int i;
+
+  _ = #init_msf();
+
+  s_sig = sig;
+  s_msg = msg;
+  s_sk = sk_seed;
+  s_pub = pub_seed;
+
+  for i = 0 to 8 {
+    w = [:u32 adrs_ptr + 4 * i];
+    w = #BSWAP_32(w);
+    adrs[i] = w;
+  }
+
+  sig = s_sig;
+  msg = s_msg;
+  sk_seed = s_sk;
+  pub_seed = s_pub;
+  adrs_rp = adrs;
+
+  __wots_sign(sig, msg, sk_seed, pub_seed, adrs_rp);
+
+  ?{}, r = #set0();
+  return r;
+}
+
+/* Export wots_pk_from_sig for C test harness */
+export fn test_wots_pk_from_sig(reg u64 pk, reg u64 sig, reg u64 msg,
+                                reg u64 pub_seed, reg u64 adrs_ptr) -> reg u64 {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_pk s_sig s_msg s_pub;
+  reg u32 w;
+  reg u64 r;
+  inline int i;
+
+  _ = #init_msf();
+
+  s_pk = pk;
+  s_sig = sig;
+  s_msg = msg;
+  s_pub = pub_seed;
+
+  for i = 0 to 8 {
+    w = [:u32 adrs_ptr + 4 * i];
+    w = #BSWAP_32(w);
+    adrs[i] = w;
+  }
+
+  pk = s_pk;
+  sig = s_sig;
+  msg = s_msg;
+  pub_seed = s_pub;
+  adrs_rp = adrs;
+
+  __wots_pk_from_sig(pk, sig, msg, pub_seed, adrs_rp);
+
+  ?{}, r = #set0();
+  return r;
+}

@@ -1,0 +1,335 @@
+/* wots.jinc — WOTS+ one-time signature scheme (RFC 8391 §3.1)
+ *
+ * Algorithms 1-6. All functions are internal (no export fn).
+ * Requires: address.jinc, hash backend (sha256_n32.jinc).
+ * Params: N, W, LOG2_W, LEN, LEN1, LEN2 (param int from .jazz).
+ */
+
+/* ====================================================================
+ * __base_w — Algorithm 1: extract base-W digits from byte string
+ *
+ * Specialized for W=16 (LOG2_W=4): each input byte yields exactly
+ * 2 base-16 digits (high nibble, low nibble). This avoids variable
+ * shifts which cause linearization issues under register pressure.
+ *
+ * outlen must be even (true for LEN1=64 and LEN2=3 is handled
+ * separately in checksum).
+ * ==================================================================== */
+inline fn __base_w(stack u32[LEN] out, inline int out_off, inline int outlen,
+                   reg u64 inp) -> stack u32[LEN] {
+  reg u32 val;
+  reg u8 b;
+  inline int i;
+
+  /* Each iteration: read one byte, extract 2 nibbles */
+  for i = 0 to outlen / 2 {
+    b = [:u8 inp];
+    inp += 1;
+
+    /* High nibble */
+    val = (32u)b;
+    val >>= 4;
+    out[out_off + 2 * i] = val;
+
+    /* Low nibble */
+    val = (32u)b;
+    val &= 0xF;
+    out[out_off + 2 * i + 1] = val;
+  }
+
+  return out;
+}
+
+/* ====================================================================
+ * __wots_checksum — Compute and append checksum digits (RFC 8391 §3.1)
+ * ==================================================================== */
+inline fn __wots_checksum(stack u32[LEN] msg) -> stack u32[LEN] {
+  reg u32 csum tmp wm1;
+  inline int i;
+
+  csum = 0;
+  wm1 = W - 1;
+  for i = 0 to LEN1 {
+    tmp = wm1;
+    tmp -= msg[i];
+    csum += tmp;
+  }
+
+  csum <<= (8 - ((LEN2 * LOG2_W) % 8)) % 8;
+
+  for i = 0 to LEN2 {
+    tmp = csum;
+    tmp >>= (((LEN2 * LOG2_W + 7) / 8) * 8) - ((i + 1) * LOG2_W);
+    tmp &= (W - 1);
+    msg[LEN1 + i] = tmp;
+  }
+
+  return msg;
+}
+
+/* ====================================================================
+ * __gen_chain — Algorithm 2: apply F repeatedly
+ *
+ * Non-inline fn. node_ptr points to N bytes (read/written in place).
+ * seed_ptr points to N bytes (public seed, read only).
+ * adrs_rp points to the ADRS u32[8] with chain field already set.
+ * ==================================================================== */
+fn __gen_chain(reg u64 node_ptr, reg u32 start, reg u32 steps,
+               reg u64 seed_ptr, reg ptr u32[8] adrs_rp) {
+  stack u8[N] node_local;
+  stack u8[N] seed_local;
+  stack u32[8] adrs;
+  stack u8[32] adrs_bytes;
+  reg ptr u8[N] seed_lp;
+  reg u32 i hash_idx;
+  stack u32 s_start s_steps;
+  stack u64 s_node_ptr;
+  reg u8 b;
+  inline int j;
+
+  /* Copy inputs to local stack */
+  for j = 0 to N { b = [:u8 node_ptr + j]; node_local[j] = b; }
+  for j = 0 to N { b = [:u8 seed_ptr + j]; seed_local[j] = b; }
+  for j = 0 to 8 { adrs[j] = adrs_rp[j]; }
+
+  s_start = start;
+  s_steps = steps;
+  s_node_ptr = node_ptr;
+
+  i = 0;
+  while {
+    steps = s_steps;
+  } (i < steps) {
+    start = s_start;
+    hash_idx = start;
+    hash_idx += i;
+    adrs = __adrs_set_hash(adrs, hash_idx);
+    adrs_bytes = __adrs_to_bytes(adrs);
+
+    seed_lp = seed_local;
+    node_local = __xmss_F_rp(node_local, seed_lp, adrs_bytes);
+
+    i += 1;
+  }
+
+  /* Write result back to caller's buffer */
+  node_ptr = s_node_ptr;
+  for j = 0 to N { b = node_local[j]; [:u8 node_ptr + j] = b; }
+}
+
+/* ====================================================================
+ * __expand_seed_one — PRF_keygen for a single chain position
+ *
+ * Non-inline fn to prevent code explosion in the caller's while loop.
+ * ==================================================================== */
+fn __expand_seed_one(reg u64 out_ptr,
+                     reg u64 sk_ptr,
+                     reg u64 pub_ptr,
+                     reg ptr u32[8] adrs_rp,
+                     reg u32 chain_idx) {
+  stack u8[N] sk_copy pub_copy;
+  stack u32[8] adrs;
+  stack u8[32] adrs_bytes;
+  reg ptr u8[32] skp psp abp;
+  stack u8[N] result;
+  reg u32 km0 h0;
+  reg u8 b;
+  inline int j;
+
+  for j = 0 to N { b = [:u8 sk_ptr + j]; sk_copy[j] = b; }
+  for j = 0 to N { b = [:u8 pub_ptr + j]; pub_copy[j] = b; }
+  for j = 0 to 8 { adrs[j] = adrs_rp[j]; }
+
+  adrs = __adrs_set_chain(adrs, chain_idx);
+  h0 = 0;
+  adrs = __adrs_set_hash(adrs, h0);
+  km0 = 0;
+  adrs = __adrs_set_key_and_mask(adrs, km0);
+  adrs_bytes = __adrs_to_bytes(adrs);
+
+  skp = sk_copy;
+  psp = pub_copy;
+  abp = adrs_bytes;
+
+  result = __xmss_PRF_keygen_rp(skp, psp, abp);
+
+  for j = 0 to N { b = result[j]; [:u8 out_ptr + j] = b; }
+}
+
+/* ====================================================================
+ * __wots_gen_pk — Algorithm 4: generate WOTS+ public key
+ *
+ * All reg ptr variables point to exactly one stack region each.
+ * adrs_p always → adrs (the only stack u32[8] in this function).
+ * ==================================================================== */
+fn __wots_gen_pk(reg u64 pk, reg u64 sk_seed, reg u64 pub_seed,
+                 reg ptr u32[8] adrs_rp) {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_p;
+  stack u64 s_pk s_sk s_pub;
+  reg u64 elem_ptr idx;
+  reg u32 start steps chain_i32;
+  inline int j;
+
+  for j = 0 to 8 { adrs[j] = adrs_rp[j]; }
+  s_pk = pk;
+  s_sk = sk_seed;
+  s_pub = pub_seed;
+
+  /* Step 1: expand seed — write LEN chain seeds to pk */
+  idx = 0;
+  while (idx < LEN) {
+    pk = s_pk;
+    elem_ptr = idx;
+    elem_ptr *= N;
+    elem_ptr += pk;
+
+    sk_seed = s_sk;
+    pub_seed = s_pub;
+    chain_i32 = (32u)idx;
+    adrs_p = adrs;
+    __expand_seed_one(elem_ptr, sk_seed, pub_seed, adrs_p, chain_i32);
+
+    idx += 1;
+  }
+
+  /* Step 2: for each chain, run gen_chain from 0 for W-1 steps */
+  idx = 0;
+  while (idx < LEN) {
+    pk = s_pk;
+    elem_ptr = idx;
+    elem_ptr *= N;
+    elem_ptr += pk;
+
+    chain_i32 = (32u)idx;
+    adrs = __adrs_set_chain(adrs, chain_i32);
+    adrs_p = adrs;
+
+    pub_seed = s_pub;
+    start = 0;
+    steps = W - 1;
+    __gen_chain(elem_ptr, start, steps, pub_seed, adrs_p);
+
+    idx += 1;
+  }
+}
+
+/* ====================================================================
+ * __wots_sign — Algorithm 5: generate WOTS+ signature
+ * ==================================================================== */
+fn __wots_sign(reg u64 sig, reg u64 msg, reg u64 sk_seed, reg u64 pub_seed,
+               reg ptr u32[8] adrs_rp) {
+  stack u32[LEN] lengths;
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_p;
+  stack u64 s_sig s_sk s_pub;
+  reg u64 elem_ptr idx;
+  reg u32 start steps chain_i32;
+  inline int j;
+
+  for j = 0 to 8 { adrs[j] = adrs_rp[j]; }
+  s_sig = sig;
+  s_sk = sk_seed;
+  s_pub = pub_seed;
+
+  /* Compute base-w message representation */
+  lengths = __base_w(lengths, 0, LEN1, msg);
+  lengths = __wots_checksum(lengths);
+
+  /* Expand seed into sig buffer */
+  idx = 0;
+  while (idx < LEN) {
+    sig = s_sig;
+    elem_ptr = idx;
+    elem_ptr *= N;
+    elem_ptr += sig;
+
+    sk_seed = s_sk;
+    pub_seed = s_pub;
+    chain_i32 = (32u)idx;
+    adrs_p = adrs;
+    __expand_seed_one(elem_ptr, sk_seed, pub_seed, adrs_p, chain_i32);
+
+    idx += 1;
+  }
+
+  /* For each position: chain from 0 for lengths[i] steps */
+  idx = 0;
+  while (idx < LEN) {
+    sig = s_sig;
+    elem_ptr = idx;
+    elem_ptr *= N;
+    elem_ptr += sig;
+
+    chain_i32 = (32u)idx;
+    adrs = __adrs_set_chain(adrs, chain_i32);
+    adrs_p = adrs;
+
+    pub_seed = s_pub;
+    start = 0;
+    steps = lengths[(uint)idx];
+    __gen_chain(elem_ptr, start, steps, pub_seed, adrs_p);
+
+    idx += 1;
+  }
+}
+
+/* ====================================================================
+ * __wots_pk_from_sig — Algorithm 6: recover public key from signature
+ * ==================================================================== */
+fn __wots_pk_from_sig(reg u64 pk, reg u64 sig, reg u64 msg,
+                      reg u64 pub_seed, reg ptr u32[8] adrs_rp) {
+  stack u32[LEN] lengths;
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_p;
+  stack u64 s_pk s_sig s_pub;
+  reg u64 in_off out_off idx;
+  reg u32 start steps chain_i32 wm1;
+  reg u8 b;
+  inline int j;
+
+  for j = 0 to 8 { adrs[j] = adrs_rp[j]; }
+  s_pk = pk;
+  s_sig = sig;
+  s_pub = pub_seed;
+
+  /* Recompute chain lengths */
+  lengths = __base_w(lengths, 0, LEN1, msg);
+  lengths = __wots_checksum(lengths);
+
+  /* Complete chains from lengths[i] to W-1 */
+  idx = 0;
+  while (idx < LEN) {
+    /* Copy sig[i] to pk[i] so gen_chain operates in-place on pk */
+    sig = s_sig;
+    in_off = idx;
+    in_off *= N;
+    in_off += sig;
+
+    pk = s_pk;
+    out_off = idx;
+    out_off *= N;
+    out_off += pk;
+
+    for j = 0 to N { b = [:u8 in_off + j]; [:u8 out_off + j] = b; }
+
+    /* Recompute out_off (clobbered by inline loop above) */
+    pk = s_pk;
+    out_off = idx;
+    out_off *= N;
+    out_off += pk;
+
+    chain_i32 = (32u)idx;
+    adrs = __adrs_set_chain(adrs, chain_i32);
+    adrs_p = adrs;
+
+    pub_seed = s_pub;
+    start = lengths[(uint)idx];
+    wm1 = W - 1;
+    steps = wm1;
+    steps -= start;
+    __gen_chain(out_off, start, steps, pub_seed, adrs_p);
+
+    idx += 1;
+  }
+}

@@ -245,6 +245,41 @@ result = __sha256_prf_rp(3, seed_rp, abp);   // OK
 
 ## Pitfalls
 
+### No `return fn_call()` in inline fn
+Jasmin cannot parse `return __some_fn(args);` in an inline fn. Assign first:
+```jasmin
+// WRONG: return __sha256_hash96(ibuf);     // parse error
+stack u8[N] result;
+result = __sha256_hash96(ibuf);
+return result;                               // RIGHT
+```
+
+### Constant minus register
+`tmp = 15 - tmp;` can cause asmgen errors. Load constant first:
+```jasmin
+// WRONG: tmp = (W - 1) - tmp;              // asmgen error
+wm1 = W - 1; tmp = wm1; tmp -= msg[i];     // RIGHT
+```
+
+### Variable shifts under register pressure
+`val >>= bits;` with `reg u32 bits` requires CL register on x86. Under high
+register pressure (e.g., when inlined into large functions), the compiler
+may fail with "linearization" errors. Specialize for known constants:
+```jasmin
+// WRONG for W=16: val >>= bits;            // linearization error
+// RIGHT for W=16: extract nibbles directly
+val = (32u)b; val >>= 4;                    // high nibble (constant shift)
+val = (32u)b; val &= 0xF;                   // low nibble
+```
+
+### Use reg u64 for loop counters indexing stack arrays
+`reg u32` loop counters used with `(uint)` for stack array indexing can
+produce complex SIB addresses the assembler can't handle. Use `reg u64`:
+```jasmin
+// WRONG: reg u32 i; ... lengths[(uint)i]   // asmgen address error
+reg u64 idx; ... lengths[(uint)idx]          // RIGHT
+```
+
 ### Zero-extend into compound operation
 x86 can't zero-extend and OR in one instruction:
 ```jasmin
@@ -261,14 +296,67 @@ Use `p`, `outp`, `blkp` — never `ptr` as a variable name.
 lo = (32u)tree; hi64 = tree; hi64 >>= 32; hi = (32u)hi64;  // RIGHT
 ```
 
+### `reg ptr` single-region rule (CRITICAL)
+**A `reg ptr` variable must point to the SAME stack variable at ALL program points.**
+The compiler's stack region analysis tracks which stack region each `reg ptr` refers to.
+If a `reg ptr` could point to different stack variables on different control flow paths
+(e.g., `p = buf1` in one branch and `p = buf2` in another), the compiler emits:
+```
+stack allocation: the region associated to variable p is partial
+```
+
+**Consequences:**
+- Never assign the same `reg ptr` variable to two different stack arrays.
+- Use separate `reg ptr` variables if you need pointers to different stack regions.
+- In `while` loops, the `reg ptr` must already be bound to a region before the loop
+  (otherwise the back-edge merges "uninitialized" with "bound" = partial).
+- A `fn` that receives `reg ptr` as a parameter and returns it works fine — the
+  parameter already establishes the binding.
+
+```jasmin
+// WRONG: a_p points to adrs in loop 1, a in loop 2 → "partial region"
+reg ptr u32[8] a_p;
+while (...) { a_p = adrs; call_fn(a_p); }  // binds to adrs
+while (...) { a_p = a;    call_fn(a_p); }  // rebinds to a → ERROR
+
+// RIGHT: use separate reg ptr variables per region
+reg ptr u32[8] adrs_p a_p;
+while (...) { adrs_p = adrs; call_fn(adrs_p); }
+while (...) { a_p = a;       call_fn(a_p); }
+```
+
 ### Preserve `reg ptr` across calls
-`reg ptr` is clobbered by function calls. Spill to `stack ptr`:
+`reg ptr` is clobbered by non-inline function calls. Spill to `stack ptr`:
 ```jasmin
 stack ptr u32[8] Hp;
 Hp = H;                // save before call
 // ... call ...
-H = Hp;                // restore
+H = Hp;                // restore (same region — OK)
 ```
+The `stack ptr` slot preserves both the value and the region binding.
+
+### Canonical `reg ptr` + while loop + fn call pattern (from libjade SHA-256)
+```jasmin
+fn _blocks(reg ptr u32[8] _H, reg u64 in inlen) -> reg ptr u32[8], reg u64, reg u64 {
+  stack ptr u32[8] Hp;       // spill slot
+  reg ptr u32[8] H;
+  Hp = _H;                   // save param
+  H = Hp;                    // load into register
+
+  while (inlen >= 64) {
+    H = __some_inline_fn(H); // inline fn returns same-region ptr
+    Hp = H;                  // RE-SAVE before nested call
+    __some_fn_call(...);     // H register is clobbered
+    H = Hp;                  // RE-RESTORE after call
+    // ... more work with H ...
+  }
+
+  _H = H;
+  return _H, in, inlen;
+}
+```
+Key: `H` always points to the same region (the caller's array via `_H`).
+`Hp` preserves it across function calls. Never reassign `H` to a different stack var.
 
 ## Design patterns
 

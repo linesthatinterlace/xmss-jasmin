@@ -582,3 +582,80 @@ fn __xmss_H_msg(reg u64 out, reg u64 r, reg u64 root,
 fn __xmss_PRF_idx(reg u64 out, reg u64 sk_prf, reg u64 idx_32bytes) {
   __xmss_PRF(out, sk_prf, idx_32bytes);
 }
+
+/* ====================================================================
+ * Algorithm-layer inline wrappers
+ *
+ * These accept reg ptr / stack arrays (obtainable from stack locals)
+ * instead of reg u64 pointers, working around Jasmin's inability to
+ * take the address of a stack variable as reg u64.
+ * ==================================================================== */
+
+/* PRF wrapper for algorithm layer: key and m as reg ptr */
+inline fn __sha256_prf_rp(inline int domain,
+                           reg ptr u8[32] key_rp,
+                           reg ptr u8[32] m_rp) -> stack u8[N] {
+  stack u8[96] ibuf;
+  stack u8[N] result;
+  reg u8 b;
+  inline int i;
+  for i = 0 to N - 1 { ibuf[i] = 0; }
+  ibuf[N - 1] = domain;
+  for i = 0 to N  { b = key_rp[i]; ibuf[N + i] = b; }
+  for i = 0 to 32 { b = m_rp[i];  ibuf[2 * N + i] = b; }
+  result = __sha256_hash96(ibuf);
+  return result;
+}
+
+/* PRF_keygen wrapper: SHA-256(toByte(4,N) || sk_seed || pub_seed || adrs_bytes)
+ * Total: N + N + N + 32 = 128 bytes for N=32. */
+inline fn __xmss_PRF_keygen_rp(reg ptr u8[32] sk_seed_rp,
+                                reg ptr u8[32] pub_seed_rp,
+                                reg ptr u8[32] adrs_bytes_rp) -> stack u8[N] {
+  stack u8[128] ibuf;
+  stack u8[N] result;
+  reg u8 b;
+  inline int i;
+  for i = 0 to N - 1 { ibuf[i] = 0; }
+  ibuf[N - 1] = 0x04;
+  for i = 0 to N  { b = sk_seed_rp[i]; ibuf[N + i] = b; }
+  for i = 0 to N  { b = pub_seed_rp[i]; ibuf[2 * N + i] = b; }
+  for i = 0 to 32 { b = adrs_bytes_rp[i]; ibuf[3 * N + i] = b; }
+  result = __sha256_hash128(ibuf);
+  return result;
+}
+
+/* F wrapper for algorithm layer: operates on stack arrays directly.
+ * F = SHA-256(toByte(0,N) || PRF(seed,adrs[km=0]) || (node XOR PRF(seed,adrs[km=1])))
+ */
+inline fn __xmss_F_rp(stack u8[N] node,
+                       reg ptr u8[32] seed_rp,
+                       stack u8[32] adrs_bytes) -> stack u8[N] {
+  stack u8[32] akm0 akm1;
+  reg ptr u8[32] akm0p akm1p;
+  stack u8[N] prf_key bitmask result;
+  stack u8[96] ibuf;
+  reg u8 b1 b2;
+  inline int i;
+
+  /* Build km=0 and km=1 copies of adrs_bytes */
+  for i = 0 to 32 { b1 = adrs_bytes[i]; akm0[i] = b1; akm1[i] = b1; }
+  /* Set km field (bytes 28-31, big-endian u32) */
+  akm0[28] = 0; akm0[29] = 0; akm0[30] = 0; akm0[31] = 0;
+  akm1[28] = 0; akm1[29] = 0; akm1[30] = 0; akm1[31] = 1;
+  akm0p = akm0; akm1p = akm1;
+
+  prf_key = __sha256_prf_rp(0x03, seed_rp, akm0p);
+  bitmask = __sha256_prf_rp(0x03, seed_rp, akm1p);
+
+  for i = 0 to N - 1 { ibuf[i] = 0; }
+  ibuf[N - 1] = 0x00;
+  for i = 0 to N { b1 = prf_key[i]; ibuf[N + i] = b1; }
+  for i = 0 to N {
+    b1 = node[i]; b2 = bitmask[i]; b1 ^= b2;
+    ibuf[2 * N + i] = b1;
+  }
+
+  result = __sha256_hash96(ibuf);
+  return result;
+}
