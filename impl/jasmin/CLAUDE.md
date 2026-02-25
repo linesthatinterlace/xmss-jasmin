@@ -176,7 +176,7 @@ These parallel the C implementation's J1–J8 rules:
 
 ## Resources
 
-- **Jasmin language reference for this project**: `jasmin-reference.md` (in this directory) — read this first when writing Jasmin code.
+- **Jasmin language reference for this project**: `SKILL.md` (in this directory) — read this first when writing Jasmin code.
 - Full language docs: https://jasmin-lang.readthedocs.io
 - libjade (canonical Jasmin crypto implementations): https://github.com/formosa-crypto/libjade
   - Use the **`release/2023.05` branch** — `main` is mid-restructure and has no `.jazz` source files.
