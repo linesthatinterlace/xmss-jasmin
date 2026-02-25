@@ -1,0 +1,143 @@
+/* test_bds.jazz — test harness for BDS functions */
+
+param int N          = 32;
+param int W          = 16;
+param int LOG2_W     = 4;
+param int LEN1       = 64;
+param int LEN2       = 3;
+param int LEN        = 67;
+param int TREE_HEIGHT = 10;
+param int BDS_K      = 2;
+
+require "../src/address.jinc"
+require "../src/hash/sha256_n32.jinc"
+require "../src/wots.jinc"
+require "../src/ltree.jinc"
+require "../src/bds.jinc"
+
+/* Export bds_treehash_init for C test harness.
+ * args: root, state, sk_seed, pub_seed, scratch
+ * scratch layout: [0..31] ADRS bytes (big-endian),
+ *                 [32..32+LEN*N+N-1] wots_buf (LEN*N + N bytes scratch)
+ */
+export fn test_bds_treehash_init(reg u64 root, reg u64 state,
+                                  reg u64 sk_seed, reg u64 pub_seed,
+                                  reg u64 scratch) -> reg u64 {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_root s_state s_sk s_pub;
+  reg u64 adrs_buf wots_buf r;
+  reg u32 w;
+  inline int i;
+
+  _ = #init_msf();
+
+  s_root = root;
+  s_state = state;
+  s_sk = sk_seed;
+  s_pub = pub_seed;
+
+  /* Load ADRS from first 32 bytes of scratch (big-endian → host) */
+  for i = 0 to 8 {
+    w = [:u32 scratch + 4 * i];
+    w = #BSWAP_32(w);
+    adrs[i] = w;
+  }
+
+  adrs_buf  = scratch;
+  wots_buf  = scratch;
+  wots_buf  += 32;
+
+  root = s_root;
+  state = s_state;
+  sk_seed = s_sk;
+  pub_seed = s_pub;
+  adrs_rp = adrs;
+
+  __bds_treehash_init(root, state, sk_seed, pub_seed, adrs_buf, adrs_rp, wots_buf);
+
+  ?{}, r = #set0();
+  return r;
+}
+
+/* Export bds_round for C test harness.
+ * args: state, leaf_idx_u64, sk_seed, pub_seed, scratch
+ */
+export fn test_bds_round(reg u64 state, reg u64 leaf_idx_u64,
+                          reg u64 sk_seed, reg u64 pub_seed,
+                          reg u64 scratch) -> reg u64 {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_state s_sk s_pub;
+  reg u64 adrs_buf wots_buf r;
+  reg u32 leaf_idx w;
+  inline int i;
+
+  _ = #init_msf();
+
+  s_state = state;
+  s_sk = sk_seed;
+  s_pub = pub_seed;
+
+  for i = 0 to 8 {
+    w = [:u32 scratch + 4 * i];
+    w = #BSWAP_32(w);
+    adrs[i] = w;
+  }
+
+  adrs_buf  = scratch;
+  wots_buf  = scratch;
+  wots_buf  += 32;
+
+  leaf_idx = (32u)leaf_idx_u64;
+  state = s_state;
+  sk_seed = s_sk;
+  pub_seed = s_pub;
+  adrs_rp = adrs;
+
+  __bds_round(state, leaf_idx, sk_seed, pub_seed, adrs_buf, adrs_rp, wots_buf);
+
+  ?{}, r = #set0();
+  return r;
+}
+
+/* Export bds_treehash_update for C test harness.
+ * args: state, updates_u64, sk_seed, pub_seed, scratch
+ */
+export fn test_bds_treehash_update(reg u64 state, reg u64 updates_u64,
+                                    reg u64 sk_seed, reg u64 pub_seed,
+                                    reg u64 scratch) -> reg u64 {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_state s_sk s_pub;
+  reg u64 adrs_buf wots_buf r;
+  reg u32 updates w;
+  inline int i;
+
+  _ = #init_msf();
+
+  s_state = state;
+  s_sk = sk_seed;
+  s_pub = pub_seed;
+
+  for i = 0 to 8 {
+    w = [:u32 scratch + 4 * i];
+    w = #BSWAP_32(w);
+    adrs[i] = w;
+  }
+
+  adrs_buf  = scratch;
+  wots_buf  = scratch;
+  wots_buf  += 32;
+
+  updates = (32u)updates_u64;
+  state = s_state;
+  sk_seed = s_sk;
+  pub_seed = s_pub;
+  adrs_rp = adrs;
+
+  __bds_treehash_update(state, updates, sk_seed, pub_seed, adrs_buf, adrs_rp, wots_buf);
+
+  ?{}, r = #set0();
+  return r;
+}
