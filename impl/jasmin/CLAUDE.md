@@ -161,6 +161,7 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Caller-provided scratch buffers as the standard pattern for the stack→reg-u64 gap.** This is an architectural decision that applies everywhere the algorithm layer needs to pass stack-local data to a `fn` expecting `reg u64`. The caller provides a pointer; the callee writes through it. No wrappers needed.
 - **Test each function in isolation before combining.** Compile minimal `.jazz` files with one function at a time. Small compilation units catch errors faster and with clearer messages.
 - **Roundtrip tests as first validation.** A sign→pk_from_sig roundtrip exercises multiple components at once, catching most algorithmic bugs immediately.
+- **Front-load understanding of the problem domain before writing.** Investing in reading the reference implementation, all existing code, and test patterns before writing a single line meant structural correctness on the first draft. Mechanical errors are cheaper to fix than architectural ones.
 
 ### Even Better If
 - **Think in x86 instructions before writing Jasmin.** Jasmin compiles to assembly — every construct maps to real instructions. Before writing a line, ask: "What instruction does this become? Does that instruction exist?" This prevents most linearization/asmgen errors.
@@ -169,6 +170,7 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Truncate error output ruthlessly.** `| head -15`. The first error is the real one. The rest is dependency chain noise that causes context overload.
 - **Don't add complexity you haven't proven necessary.** Test the simpler hypothesis first. The wrapper functions were added because the error messages *mentioned* cross-function variables, but the actual root cause was the if/else parameter swap within a single function. One minimal test would have ruled out the cross-function theory.
 - **Jasmin is not a fast-iteration language.** The compile-read-error-fix cycle that works for Python/JS/Rust burns tokens here. Think more, compile less.
+- **Shorten the feedback loop, especially in unforgiving languages.** Writing everything before the first compile trades a fast "does this approach work?" signal for a large, tangled error. Validate the riskiest integration point first (here: the first fn that calls into existing code), then build outward.
 
 ## Open questions / future work
 
