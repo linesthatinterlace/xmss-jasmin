@@ -1,0 +1,106 @@
+/* test_treehash.jazz — test harness for treehash functions */
+
+param int N          = 32;
+param int W          = 16;
+param int LOG2_W     = 4;
+param int LEN1       = 64;
+param int LEN2       = 3;
+param int LEN        = 67;
+param int TREE_HEIGHT = 10;
+
+require "../src/address.jinc"
+require "../src/hash/sha256_n32.jinc"
+require "../src/wots.jinc"
+require "../src/ltree.jinc"
+require "../src/treehash.jinc"
+
+/* Export compute_root for C test harness.
+ * args: root, leaf, leaf_idx, auth, seed, adrs_ptr
+ * adrs_ptr doubles as the 32-byte ADRS scratch buffer. */
+export fn test_compute_root(reg u64 root, reg u64 leaf,
+                            reg u64 leaf_idx_u64, reg u64 auth,
+                            reg u64 seed, reg u64 adrs_ptr) -> reg u64 {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_root s_leaf s_auth s_seed;
+  reg u32 leaf_idx w;
+  reg u64 r;
+  inline int i;
+
+  _ = #init_msf();
+
+  s_root = root;
+  s_leaf = leaf;
+  s_auth = auth;
+  s_seed = seed;
+
+  /* Load ADRS from caller (big-endian u32s → host u32s) */
+  for i = 0 to 8 {
+    w = [:u32 adrs_ptr + 4 * i];
+    w = #BSWAP_32(w);
+    adrs[i] = w;
+  }
+
+  leaf_idx = (32u)leaf_idx_u64;
+  root = s_root;
+  leaf = s_leaf;
+  auth = s_auth;
+  seed = s_seed;
+  adrs_rp = adrs;
+
+  __compute_root(root, leaf, leaf_idx, auth, seed, adrs_ptr, adrs_rp);
+
+  ?{}, r = #set0();
+  return r;
+}
+
+/* Export treehash for C test harness.
+ * args: root, s_val, t_val, sk_seed, pub_seed, scratch
+ * scratch layout: [0..31] ADRS bytes, [32..LEN*N+31] wots_buf,
+ *                 [LEN*N+32 ..] nodes_buf
+ * Caller also passes ADRS via the first 32 bytes of scratch. */
+export fn test_treehash(reg u64 root, reg u64 s_val, reg u64 t_val,
+                        reg u64 sk_seed, reg u64 pub_seed,
+                        reg u64 scratch) -> reg u64 {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_root s_sk s_pub;
+  reg u64 adrs_buf wots_buf nodes_buf r;
+  reg u32 s32 t32 w;
+  inline int i;
+
+  _ = #init_msf();
+
+  s_root = root;
+  s_sk = sk_seed;
+  s_pub = pub_seed;
+  /* Load ADRS from first 32 bytes of scratch (big-endian → host) */
+  for i = 0 to 8 {
+    w = [:u32 scratch + 4 * i];
+    w = #BSWAP_32(w);
+    adrs[i] = w;
+  }
+
+  /* Set up buffer pointers within scratch:
+   * [0..31] = adrs_buf (scratch for ADRS serialization)
+   * [32 .. 32+LEN*N-1] = wots_buf
+   * [32+LEN*N ..] = nodes_buf */
+  adrs_buf  = scratch;
+  wots_buf  = scratch;
+  wots_buf  += 32;
+  nodes_buf = wots_buf;
+  nodes_buf += LEN * N;
+
+  s32 = (32u)s_val;
+  t32 = (32u)t_val;
+  root = s_root;
+  sk_seed = s_sk;
+  pub_seed = s_pub;
+  adrs_rp = adrs;
+
+  __treehash(root, s32, t32, sk_seed, pub_seed, adrs_buf, adrs_rp,
+             wots_buf, nodes_buf);
+
+  ?{}, r = #set0();
+  return r;
+}

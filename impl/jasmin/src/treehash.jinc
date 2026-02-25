@@ -1,0 +1,317 @@
+/* treehash.jinc — Merkle treehash (RFC 8391 Algorithm 9)
+ *
+ * __treehash:     build the root of a subtree of height h.
+ * __compute_root: walk an auth path upward from a leaf (used by verify).
+ *
+ * Requires: address.jinc, wots.jinc, ltree.jinc, hash backend.
+ * Params: N, LEN, TREE_HEIGHT (param int from .jazz).
+ */
+
+/* Thin wrappers around __xmss_H to isolate register allocation domains.
+ * Jasmin assigns parameter registers globally per callee; without wrappers,
+ * ltree + compute_root + treehash all sharing __xmss_H creates irreconcilable
+ * register conflicts. Each wrapper has one trivial forwarding call. */
+fn __xmss_H_cr(reg u64 out, reg u64 pub_seed, reg u64 adrs_bytes,
+               reg u64 in_l, reg u64 in_r) {
+  __xmss_H(out, pub_seed, adrs_bytes, in_l, in_r);
+}
+
+fn __xmss_H_th(reg u64 out, reg u64 pub_seed, reg u64 adrs_bytes,
+               reg u64 in_l, reg u64 in_r) {
+  __xmss_H(out, pub_seed, adrs_bytes, in_l, in_r);
+}
+
+/* ====================================================================
+ * __compute_root — walk auth path from leaf to root
+ *
+ * root_ptr:   output, N bytes (also used as accumulator)
+ * leaf_ptr:   input, N bytes (l-tree output of WOTS+ pk)
+ * leaf_idx:   index of this leaf in the tree (public)
+ * auth_ptr:   authentication path, TREE_HEIGHT * N bytes
+ * seed_ptr:   N-byte public seed
+ * adrs_buf:   32-byte scratch buffer for ADRS serialisation
+ * adrs_rp:    ADRS with layer/tree fields set by caller
+ * ==================================================================== */
+fn __compute_root(reg u64 root_ptr, reg u64 leaf_ptr, reg u32 leaf_idx,
+                  reg u64 auth_ptr, reg u64 seed_ptr,
+                  reg u64 adrs_buf, reg ptr u32[8] adrs_rp) {
+  stack u32[8] adrs;
+  stack u8[32] adrs_bytes;
+  stack u64 s_root s_auth s_seed s_adrs_buf;
+  stack u64 s_left s_right;
+  stack u32 s_leaf_idx;
+  reg u64 auth_off h height left_arg right_arg;
+  reg u32 h32 tidx32;
+  reg u64 tidx;
+  reg u8 b bit;
+  inline int j;
+
+  /* Copy ADRS and inputs to locals */
+  for j = 0 to 8 { adrs[j] = adrs_rp[j]; }
+  s_root     = root_ptr;
+  s_auth     = auth_ptr;
+  s_seed     = seed_ptr;
+  s_adrs_buf = adrs_buf;
+  s_leaf_idx = leaf_idx;
+
+  /* Copy leaf into root_ptr (used as accumulator) */
+  for j = 0 to N { b = [:u8 leaf_ptr + j]; [:u8 root_ptr + j] = b; }
+
+  /* Ascend the tree, one level per iteration.
+   * Use a while loop (not inline for) to keep one __xmss_H call site. */
+  h = 0;
+  while (h <u TREE_HEIGHT) {
+    leaf_idx  = s_leaf_idx;
+
+    /* Set ADRS: type=HASH(2), tree_height=h, tree_index = leaf_idx >> 1 */
+    adrs = __adrs_set_type(adrs, 2);
+    h32 = (32u)h;
+    adrs = __adrs_set_tree_height(adrs, h32);
+    tidx = (64u)leaf_idx;
+    tidx >>= 1;
+    tidx32 = (32u)tidx;
+    adrs = __adrs_set_tree_index(adrs, tidx32);
+
+    /* Serialise ADRS to external scratch buffer */
+    adrs_bytes  = __adrs_to_bytes(adrs);
+    adrs_buf    = s_adrs_buf;
+    height = h;  /* save h across byte-copy loop */
+    for j = 0 to 32 { b = adrs_bytes[j]; [:u8 adrs_buf + j] = b; }
+    h = height;
+
+    /* auth_off = auth_ptr + h * N */
+    auth_off  = h;
+    auth_off  *= N;
+    auth_ptr  = s_auth;
+    auth_off  += auth_ptr;
+
+    /* Decide left/right from leaf_idx bit 0.
+     * Spill both addresses to stack, then reload in the correct order
+     * into fresh registers. This gives one __xmss_H call site (no
+     * if/else swapping params which creates irreconcilable register
+     * allocation conflicts). */
+    leaf_idx = s_leaf_idx;
+    bit = (8u)leaf_idx;
+    bit &= 1;
+
+    root_ptr = s_root;
+
+    if (bit == 0) {
+      s_left  = root_ptr;
+      s_right = auth_off;
+    } else {
+      s_left  = auth_off;
+      s_right = root_ptr;
+    }
+
+    /* Reload from stack into fresh regs for the single call site */
+    left_arg  = s_left;
+    right_arg = s_right;
+    root_ptr  = s_root;
+    seed_ptr  = s_seed;
+    adrs_buf  = s_adrs_buf;
+
+    __xmss_H_cr(root_ptr, seed_ptr, adrs_buf, left_arg, right_arg);
+
+    /* leaf_idx >>= 1 for next level */
+    leaf_idx = s_leaf_idx;
+    leaf_idx >>= 1;
+    s_leaf_idx = leaf_idx;
+
+    h += 1;
+  }
+}
+
+/* ====================================================================
+ * __treehash — RFC 8391 Algorithm 9: iterative Merkle treehash
+ *
+ * root_ptr:   output, N bytes
+ * s:          starting leaf index (0 for full tree root)
+ * t:          number of leaves (2^TREE_HEIGHT for full tree)
+ * sk_seed:    N-byte secret seed pointer
+ * pub_seed:   N-byte public seed pointer
+ * adrs_buf:   32-byte scratch for ADRS serialisation (passed to ltree/H)
+ * adrs_rp:    ADRS with layer/tree fields set by caller
+ * wots_buf:   LEN*N bytes caller-provided scratch for WOTS+ pk
+ * nodes_buf:  (TREE_HEIGHT+1)*N bytes caller-provided node stack
+ *
+ * Internal stack: heights[TREE_HEIGHT+1] (on Jasmin stack), top counter.
+ * ==================================================================== */
+fn __treehash(reg u64 root_ptr, reg u32 s, reg u32 t,
+              reg u64 sk_seed, reg u64 pub_seed,
+              reg u64 adrs_buf, reg ptr u32[8] adrs_rp,
+              reg u64 wots_buf, reg u64 nodes_buf) {
+  /* Height stack stays on Jasmin stack (small, indexed by top) */
+  stack u32[TREE_HEIGHT + 1] heights;
+  stack u64 s_top;
+
+  /* ADRS and serialised form */
+  stack u32[8] adrs;
+  stack u8[32] adrs_bytes;
+
+  /* Spill slots for reg u64 values that must survive fn calls */
+  stack u64 s_root s_sk s_pub s_adrs_buf s_wots s_nodes;
+  stack u32 s_s s_t s_idx;
+
+  /* Working registers */
+  reg u64 idx idx64 top;
+  reg u64 node_ptr lo_ptr hi_ptr out_ptr;
+  reg u32 idx32 node_height tidx sh_i;
+  reg u32 h0 h1;
+  reg u8 can_merge;
+  reg ptr u32[8] adrs_p;
+  reg u8 b;
+  inline int j;
+
+  /* Initialise */
+  for j = 0 to 8 { adrs[j] = adrs_rp[j]; }
+  s_root     = root_ptr;
+  s_sk       = sk_seed;
+  s_pub      = pub_seed;
+  s_adrs_buf = adrs_buf;
+  s_wots     = wots_buf;
+  s_nodes    = nodes_buf;
+  s_s        = s;
+  s_t        = t;
+
+  top = 0;
+  s_top = top;
+
+  /* Zero heights array */
+  for j = 0 to TREE_HEIGHT + 1 { heights[j] = 0; }
+
+  /* Outer loop: iterate over all t leaves */
+  idx = (64u)s;
+  while {
+    t   = s_t;
+    s   = s_s;
+    idx64 = (64u)s;
+    node_ptr = (64u)t;    /* borrow node_ptr as temp for u32→u64 */
+    idx64 += node_ptr;
+  } (idx <u idx64) {
+
+    s_idx = (32u)idx;
+
+    /* ---- Step 1: compute WOTS+ public key into wots_buf ---- */
+    idx32 = (32u)idx;
+    adrs  = __adrs_set_type(adrs, 0);   /* OTS */
+    adrs  = __adrs_set_ots(adrs, idx32);
+
+    wots_buf = s_wots;
+    sk_seed  = s_sk;
+    pub_seed = s_pub;
+    adrs_p   = adrs;
+    __wots_gen_pk(wots_buf, sk_seed, pub_seed, adrs_p);
+
+    /* ---- Step 2: l-tree compress wots_buf directly into nodes_buf[top] ---- */
+    idx32  = s_idx;
+    adrs   = __adrs_set_type(adrs, 1);  /* LTREE */
+    adrs   = __adrs_set_ltree(adrs, idx32);
+
+    adrs_bytes  = __adrs_to_bytes(adrs);
+    adrs_buf    = s_adrs_buf;
+    for j = 0 to 32 { b = adrs_bytes[j]; [:u8 adrs_buf + j] = b; }
+
+    /* Compute destination: nodes_buf + top * N */
+    top      = s_top;
+    node_ptr = top;
+    node_ptr *= N;
+    nodes_buf = s_nodes;
+    node_ptr += nodes_buf;
+
+    wots_buf = s_wots;
+    pub_seed = s_pub;
+    adrs_buf = s_adrs_buf;
+    adrs_p   = adrs;
+    __ltree(node_ptr, wots_buf, pub_seed, adrs_buf, adrs_p);
+
+    /* ---- Step 3: record height 0, increment top ---- */
+    top   = s_top;
+    idx32 = s_idx;
+
+    /* Set HASH ADRS for this leaf: type=2, tree_height=0, tree_index=idx */
+    adrs  = __adrs_set_type(adrs, 2);
+    h0    = 0;
+    adrs  = __adrs_set_tree_height(adrs, h0);
+    adrs  = __adrs_set_tree_index(adrs, idx32);
+
+    heights[(uint)top] = 0;
+    top += 1;
+    s_top = top;
+
+    /* ---- Step 4: merge while top two have equal height ---- */
+    while {
+      top = s_top;
+      can_merge = 0;
+      if (top >=u 2) {
+        h0 = heights[(uint)(top - 2)];
+        h1 = heights[(uint)(top - 1)];
+        if (h0 == h1) { can_merge = 1; }
+      }
+    } (can_merge == 1) {
+      /* Pop hi (top-1), lo (top-2) */
+      node_height = h0;
+
+      top -= 1;
+      hi_ptr  = top;
+      hi_ptr  *= N;
+
+      top -= 1;
+      lo_ptr  = top;
+      lo_ptr  *= N;
+
+      /* Tree index for merged node:
+       * tree_index = (s >> (h+1)) + ((idx - s) >> (h+1))
+       * where h = node_height */
+      idx32  = s_idx;
+      s      = s_s;
+      tidx   = idx32;
+      tidx   -= s;
+      node_height += 1;     /* h0+1: shift amount for tree index */
+      /* Variable shifts need CL on x86-64 which is hard to guarantee.
+       * Use a loop of constant shifts by 1 instead. */
+      sh_i = node_height;
+      while (sh_i >u 0) {
+        tidx >>= 1;
+        s    >>= 1;
+        sh_i -= 1;
+      }
+      tidx  += s;
+      node_height -= 1;     /* back to h0 */
+
+      /* ADRS: tree_height = h0, tree_index = tidx */
+      adrs  = __adrs_set_type(adrs, 2);
+      adrs  = __adrs_set_tree_height(adrs, node_height);
+      adrs  = __adrs_set_tree_index(adrs, tidx);
+
+      adrs_bytes  = __adrs_to_bytes(adrs);
+      adrs_buf    = s_adrs_buf;
+      for j = 0 to 32 { b = adrs_bytes[j]; [:u8 adrs_buf + j] = b; }
+
+      /* Update heights and top BEFORE the H call (stack survives fn calls) */
+      node_height += 1;             /* h0+1: height of merged node */
+      heights[(uint)top] = node_height;
+      top += 1;
+      s_top = top;
+
+      /* Add nodes_buf base to hi/lo offsets, compute out_ptr */
+      nodes_buf = s_nodes;
+      hi_ptr += nodes_buf;
+      lo_ptr += nodes_buf;
+      out_ptr = lo_ptr;             /* result overwrites lo position */
+
+      pub_seed = s_pub;
+      adrs_buf = s_adrs_buf;
+      __xmss_H_th(out_ptr, pub_seed, adrs_buf, lo_ptr, hi_ptr);
+    }
+
+    idx32 = s_idx;
+    idx   = (64u)idx32;
+    idx  += 1;
+  }
+
+  /* Root is nodes_buf[0..N-1] */
+  root_ptr  = s_root;
+  nodes_buf = s_nodes;
+  for j = 0 to N { b = [:u8 nodes_buf + j]; [:u8 root_ptr + j] = b; }
+}

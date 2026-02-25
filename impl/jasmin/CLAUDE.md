@@ -195,6 +195,11 @@ These parallel the C implementation's J1–J8 rules:
 - **Sign→pk_from_sig roundtrip as first test**: This single test exercises gen_pk, sign, and pk_from_sig together, catching most algorithmic bugs immediately.
 - **Cataloguing compiler pitfalls in SKILL.md**: Each hard-won lesson (single-region rule, constant-minus-reg, variable shifts, etc.) documented with concrete examples prevents repeating mistakes.
 
+- **Wrapper `fn`s to isolate register allocation domains**: When multiple functions (ltree, compute_root, treehash) call the same `fn` (e.g. `__xmss_H`), Jasmin propagates parameter register constraints inter-procedurally, creating irreconcilable conflicts. Thin forwarder wrappers (`fn __xmss_H_cr(...)  { __xmss_H(...); }`) give each caller its own callee with independent register allocation. One wrapper per calling context.
+- **Spill/reload to eliminate parameter-swapping conflicts**: When an `if/else` passes the same variables to a `fn` in different parameter positions (e.g. `H(a, b)` vs `H(b, a)`), the allocator can't put one variable in two registers. Fix: spill both to stack in the if/else, reload into fresh registers after, then make one call.
+- **Constant-shift loops for variable shifts**: `x >>= runtime_count` requires CL on x86-64 and the allocator often can't guarantee it. Replace with `while (count > 0) { x >>= 1; count--; }`. Bounded by TREE_HEIGHT so performance is fine.
+- **Zero-extension before ADD**: `idx64 += (64u)t` isn't a valid x86 instruction (ADD can't zero-extend an operand). Store the extension in a temp register first: `tmp = (64u)t; idx64 += tmp;`.
+
 ### Even Better If
 - **Study libjade patterns BEFORE writing code**: The `reg ptr` single-region rule would have been obvious from reading libjade's `_blocks_0_ref` SHA-256 function upfront. Always read canonical examples in libjade before designing a new function's signature.
 - **Reason about compiler behaviour before trial-and-error**: When hitting an error, stop and think about *why* it occurs (what does the compiler need to prove? what invariant is violated?). Don't try random fixes hoping one sticks.
@@ -202,6 +207,7 @@ These parallel the C implementation's J1–J8 rules:
 - **Anticipate code size**: 67 iterations × inlined SHA-256 = obvious blowup. Think about inlining depth before choosing `inline fn` vs `fn`.
 - **Test each function in isolation**: Compile and test `gen_chain` alone before building `gen_pk` on top of it. Small compilation units catch errors faster and with clearer messages.
 - **Use `reg u64` for loop counters from the start**: `reg u32` counters cause SIB addressing issues and require `(64u)` casts everywhere. Default to `reg u64` for any counter used in pointer arithmetic or array indexing.
+- **Truncate jasminc error output**: Jasmin produces very verbose compilation errors (hundreds of lines). Use `| head -15` to see only the root cause. The first error is usually the important one; the rest is dependency chain noise.
 
 ## Open questions / future work
 
