@@ -190,13 +190,15 @@ These parallel the C implementation's J1–J8 rules:
 
 ### What Went Well
 - **Non-inline `fn` for hot loop bodies**: Using `fn` (not `inline fn`) for `gen_chain` and `expand_seed_one` prevents compiler stack overflow from inlining hash code 67× in unrolled loops. Do this for any function called inside a `for i = 0 to LEN` or equivalent while loop.
-- **Inline wrappers for the stack↔reg-u64 bridge**: The `__xmss_F_rp` / `__xmss_PRF_keygen_rp` pattern (inline fn accepting `reg ptr`/`stack`, copying into `ibuf`, calling the inner hash primitive) cleanly separates the algorithm layer from the hash layer's pointer conventions.
+- **Inline wrappers for the stack↔reg-u64 bridge**: The `__xmss_F_rp` / `__xmss_PRF_keygen_rp` pattern (inline fn accepting `reg ptr`/`stack`, copying into `ibuf`, calling the inner hash primitive) cleanly separates the algorithm layer from the hash layer's pointer conventions. Note: this only works for hash functions with ≤2 PRF calls (F). For H (3 PRF calls), use the non-inline `fn __xmss_H` with a caller-provided scratch buffer instead.
+- **Caller-provided scratch buffers for the stack→reg-u64 gap**: When algorithm code needs to pass stack-local data (e.g. serialized ADRS) to a `fn` expecting `reg u64`, have the caller provide a scratch pointer. This avoids the stack-address-to-reg-u64 limitation without inline wrappers. In ltree, the test harness's own `adrs_ptr` doubles as scratch — zero extra allocation.
 - **Sign→pk_from_sig roundtrip as first test**: This single test exercises gen_pk, sign, and pk_from_sig together, catching most algorithmic bugs immediately.
 - **Cataloguing compiler pitfalls in SKILL.md**: Each hard-won lesson (single-region rule, constant-minus-reg, variable shifts, etc.) documented with concrete examples prevents repeating mistakes.
 
 ### Even Better If
 - **Study libjade patterns BEFORE writing code**: The `reg ptr` single-region rule would have been obvious from reading libjade's `_blocks_0_ref` SHA-256 function upfront. Always read canonical examples in libjade before designing a new function's signature.
 - **Reason about compiler behaviour before trial-and-error**: When hitting an error, stop and think about *why* it occurs (what does the compiler need to prove? what invariant is violated?). Don't try random fixes hoping one sticks.
+- **Count registers before writing inline wrappers**: F (2 PRF calls) fits in 16 registers when inlined; H (3 PRF calls) does not. Before creating a new `inline fn` that calls hash primitives, estimate whether the combined register pressure fits x86-64's 16 GPRs. If not, use a non-inline `fn` with the scratch-buffer pattern instead.
 - **Anticipate code size**: 67 iterations × inlined SHA-256 = obvious blowup. Think about inlining depth before choosing `inline fn` vs `fn`.
 - **Test each function in isolation**: Compile and test `gen_chain` alone before building `gen_pk` on top of it. Small compilation units catch errors faster and with clearer messages.
 - **Use `reg u64` for loop counters from the start**: `reg u32` counters cause SIB addressing issues and require `(64u)` casts everywhere. Default to `reg u64` for any counter used in pointer arithmetic or array indexing.
