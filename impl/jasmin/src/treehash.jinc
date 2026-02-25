@@ -7,20 +7,6 @@
  * Params: N, LEN, TREE_HEIGHT (param int from .jazz).
  */
 
-/* Thin wrappers around __xmss_H to isolate register allocation domains.
- * Jasmin assigns parameter registers globally per callee; without wrappers,
- * ltree + compute_root + treehash all sharing __xmss_H creates irreconcilable
- * register conflicts. Each wrapper has one trivial forwarding call. */
-fn __xmss_H_cr(reg u64 out, reg u64 pub_seed, reg u64 adrs_bytes,
-               reg u64 in_l, reg u64 in_r) {
-  __xmss_H(out, pub_seed, adrs_bytes, in_l, in_r);
-}
-
-fn __xmss_H_th(reg u64 out, reg u64 pub_seed, reg u64 adrs_bytes,
-               reg u64 in_l, reg u64 in_r) {
-  __xmss_H(out, pub_seed, adrs_bytes, in_l, in_r);
-}
-
 /* ====================================================================
  * __compute_root — walk auth path from leaf to root
  *
@@ -111,7 +97,7 @@ fn __compute_root(reg u64 root_ptr, reg u64 leaf_ptr, reg u32 leaf_idx,
     seed_ptr  = s_seed;
     adrs_buf  = s_adrs_buf;
 
-    __xmss_H_cr(root_ptr, seed_ptr, adrs_buf, left_arg, right_arg);
+    __xmss_H(root_ptr, seed_ptr, adrs_buf, left_arg, right_arg);
 
     /* leaf_idx >>= 1 for next level */
     leaf_idx = s_leaf_idx;
@@ -302,7 +288,7 @@ fn __treehash(reg u64 root_ptr, reg u32 s, reg u32 t,
 
       pub_seed = s_pub;
       adrs_buf = s_adrs_buf;
-      __xmss_H_th(out_ptr, pub_seed, adrs_buf, lo_ptr, hi_ptr);
+      __xmss_H(out_ptr, pub_seed, adrs_buf, lo_ptr, hi_ptr);
     }
 
     idx32 = s_idx;
