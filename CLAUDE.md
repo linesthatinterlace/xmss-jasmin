@@ -46,6 +46,13 @@ See `impl/jasmin/CLAUDE.md` for how these findings affect the Jasmin port strate
 
 WWW/EBI (What Went Well / Even Better If) is a reflective evaluation framework. After completing a significant piece of work, write WWW items (things that worked, to do more of) and EBI items (things to improve next time). Store these in the relevant implementation's CLAUDE.md so future sessions benefit.
 
+### Writing effective reflections
+
+- Capture **working principles and process**, not code-level recipes. Code patterns belong in language references (SKILL.md, pitfall docs).
+- A good item should be **transferable** — applicable to the next problem, not just a replay of the last one. Test: "Would this help someone who hits a *different* problem?" If no, it's a recipe, not a principle.
+- Anti-pattern: "Use X pattern to fix Y error" (recipe). Better: "Identify the root constraint before attempting fixes" (principle).
+- When a session produces both a process insight and a code pattern, put the process insight in WWW/EBI and the code pattern in the language reference.
+
 ## Cross-cutting rules
 
 These apply to ALL implementations regardless of language:

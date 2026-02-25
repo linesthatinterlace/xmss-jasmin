@@ -272,6 +272,32 @@ val = (32u)b; val >>= 4;                    // high nibble (constant shift)
 val = (32u)b; val &= 0xF;                   // low nibble
 ```
 
+### Constant-shift loops for variable shifts
+When you need `x >>= runtime_var` and can't specialize, replace with a
+bounded loop of single-bit shifts (avoids CL requirement entirely):
+```jasmin
+// WRONG: x >>= count;                      // requires CL, may fail
+// RIGHT: bounded loop (count ≤ TREE_HEIGHT, so perf is fine)
+while (count > 0) { x >>= 1; count -= 1; }
+```
+
+### Spill/reload for parameter-position swapping
+If an `if/else` passes the same variables to a `fn` in different parameter
+positions (e.g., `H(a, b)` vs `H(b, a)`), the register allocator can't
+place one variable in two registers simultaneously. Spill both to stack
+in the branches, reload into fresh registers after, then make one call:
+```jasmin
+// WRONG: two call sites with swapped args → register conflict
+if (cond) { r = __H(x, y); } else { r = __H(y, x); }
+
+// RIGHT: spill in branches, single call after
+stack u64 arg1_s arg2_s;
+if (cond) { arg1_s = x; arg2_s = y; } else { arg1_s = y; arg2_s = x; }
+reg u64 a1 a2;
+a1 = arg1_s; a2 = arg2_s;
+r = __H(a1, a2);
+```
+
 ### Use reg u64 for loop counters indexing stack arrays
 `reg u32` loop counters used with `(uint)` for stack array indexing can
 produce complex SIB addresses the assembler can't handle. Use `reg u64`:
@@ -281,10 +307,13 @@ reg u64 idx; ... lengths[(uint)idx]          // RIGHT
 ```
 
 ### Zero-extend into compound operation
-x86 can't zero-extend and OR in one instruction:
+x86 can't zero-extend and combine in one instruction. Applies to OR, ADD, and other ALU ops:
 ```jasmin
 // WRONG: diff |= (64u)byte_val;     // asmgen error
 tmp = (64u)byte_val; diff |= tmp;    // RIGHT
+
+// WRONG: idx64 += (64u)t;           // asmgen error (ADD can't zero-extend)
+tmp = (64u)t; idx64 += tmp;          // RIGHT
 ```
 
 ### `ptr` is a keyword
@@ -357,6 +386,22 @@ fn _blocks(reg ptr u32[8] _H, reg u64 in inlen) -> reg ptr u32[8], reg u64, reg 
 ```
 Key: `H` always points to the same region (the caller's array via `_H`).
 `Hp` preserves it across function calls. Never reassign `H` to a different stack var.
+
+## Working with Jasmin
+
+### Think in x86 instructions
+Before writing any Jasmin construct, ask: "What x86 instruction does this become? Does that instruction exist with these operand types?" Most asmgen and linearization errors come from writing something that has no single-instruction equivalent.
+
+### Register allocator is inter-procedural
+When multiple `fn`s call the same callee, parameter registers are shared across all call sites. A conflict in one caller can manifest as an error in another. When debugging allocation failures, check all callers.
+
+### `fn` vs `inline fn` choice
+- Use `fn` (not `inline fn`) for anything called in a loop — `inline fn` duplicates the body at every call site, causing code size blowup and register pressure explosion (e.g., 67× inlined SHA-256).
+- Use `inline fn` for small helpers (ADRS setters, byte copies) where the call overhead would dominate.
+- Before creating a new `inline fn` that calls hash primitives, estimate whether the combined register pressure fits x86-64's 16 GPRs.
+
+### Default to `reg u64` for loop counters
+`reg u32` counters used in pointer arithmetic require `(64u)` casts everywhere and can produce SIB addressing issues. Use `reg u64` from the start for any counter used in array indexing.
 
 ## Design patterns
 

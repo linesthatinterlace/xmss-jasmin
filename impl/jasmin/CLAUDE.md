@@ -116,40 +116,7 @@ Hash implementations should be written from scratch in Jasmin (not auto-generate
 
 ## Jasmin language notes
 
-### Types
-
-```
-u8, u16, u32, u64          -- unsigned integers
-bool                       -- booleans (flags)
-u8[N]                      -- fixed-size byte arrays (stack-allocated)
-```
-
-### Functions
-
-```
-fn foo(reg u64 x, stack u8[32] buf) -> reg u64 { ... }
-```
-
-- `reg` — lives in a register
-- `stack` — lives on the stack (fixed-size array)
-- `inline` — inlined at call site (like a macro; used for small helpers)
-- `export` — exported with C calling convention (callable from C)
-
-### Security annotations
-
-```
-#[secret]   // value is secret; must not be used in branches or memory addresses
-#[public]   // value is public
-#[msf]      // mask speculative flow (Spectre mitigation)
-```
-
-### Control flow
-
-Only `for`, `while`, `if` — no recursion. Loop bounds must be public (not secret-dependent).
-
-### Calling from C
-
-`export fn` generates a C-callable symbol. The ABI follows the platform's standard (System V AMD64 for x86-64). Test harnesses in `test/` are C files that `#include` the function declarations and link against the `.s` files.
+See `SKILL.md` for the full Jasmin language reference, type system, pitfalls, and design patterns.
 
 ## Relationship to C implementation
 
@@ -186,27 +153,22 @@ These parallel the C implementation's J1–J8 rules:
 - formosa-crypto organisation: https://github.com/formosa-crypto
 - **formosa-xmss**: https://github.com/formosa-crypto/formosa-xmss — a human-authored Jasmin implementation of XMSS, subject to active research. Scope and parameter coverage TBD. **Do not treat as a template or copy from it** — our implementation is independent — but it is prior art worth being aware of and potentially cross-validating against.
 
-## WWW/EBI (accumulated session learnings)
+## WWW/EBI
+
+Principles, not recipes. Code-level patterns live in `SKILL.md`.
 
 ### What Went Well
-- **Non-inline `fn` for hot loop bodies**: Using `fn` (not `inline fn`) for `gen_chain` and `expand_seed_one` prevents compiler stack overflow from inlining hash code 67× in unrolled loops. Do this for any function called inside a `for i = 0 to LEN` or equivalent while loop.
-- **Inline wrappers for the stack↔reg-u64 bridge**: The `__xmss_F_rp` / `__xmss_PRF_keygen_rp` pattern (inline fn accepting `reg ptr`/`stack`, copying into `ibuf`, calling the inner hash primitive) cleanly separates the algorithm layer from the hash layer's pointer conventions. Note: this only works for hash functions with ≤2 PRF calls (F). For H (3 PRF calls), use the non-inline `fn __xmss_H` with a caller-provided scratch buffer instead.
-- **Caller-provided scratch buffers for the stack→reg-u64 gap**: When algorithm code needs to pass stack-local data (e.g. serialized ADRS) to a `fn` expecting `reg u64`, have the caller provide a scratch pointer. This avoids the stack-address-to-reg-u64 limitation without inline wrappers. In ltree, the test harness's own `adrs_ptr` doubles as scratch — zero extra allocation.
-- **Sign→pk_from_sig roundtrip as first test**: This single test exercises gen_pk, sign, and pk_from_sig together, catching most algorithmic bugs immediately.
-- **Cataloguing compiler pitfalls in SKILL.md**: Each hard-won lesson (single-region rule, constant-minus-reg, variable shifts, etc.) documented with concrete examples prevents repeating mistakes.
-
-- **Spill/reload to eliminate parameter-swapping conflicts**: When an `if/else` passes the same variables to a `fn` in different parameter positions (e.g. `H(a, b)` vs `H(b, a)`), the allocator can't put one variable in two registers. Fix: spill both to stack in the if/else, reload into fresh registers after, then make one call. This was the sole fix needed for register conflicts across ltree+compute_root+treehash sharing `__xmss_H` — wrapper `fn`s were tried but turned out to be unnecessary.
-- **Constant-shift loops for variable shifts**: `x >>= runtime_count` requires CL on x86-64 and the allocator often can't guarantee it. Replace with `while (count > 0) { x >>= 1; count--; }`. Bounded by TREE_HEIGHT so performance is fine.
-- **Zero-extension before ADD**: `idx64 += (64u)t` isn't a valid x86 instruction (ADD can't zero-extend an operand). Store the extension in a temp register first: `tmp = (64u)t; idx64 += tmp;`.
+- **Caller-provided scratch buffers as the standard pattern for the stack→reg-u64 gap.** This is an architectural decision that applies everywhere the algorithm layer needs to pass stack-local data to a `fn` expecting `reg u64`. The caller provides a pointer; the callee writes through it. No wrappers needed.
+- **Test each function in isolation before combining.** Compile minimal `.jazz` files with one function at a time. Small compilation units catch errors faster and with clearer messages.
+- **Roundtrip tests as first validation.** A sign→pk_from_sig roundtrip exercises multiple components at once, catching most algorithmic bugs immediately.
 
 ### Even Better If
-- **Study libjade patterns BEFORE writing code**: The `reg ptr` single-region rule would have been obvious from reading libjade's `_blocks_0_ref` SHA-256 function upfront. Always read canonical examples in libjade before designing a new function's signature.
-- **Reason about compiler behaviour before trial-and-error**: When hitting an error, stop and think about *why* it occurs (what does the compiler need to prove? what invariant is violated?). Don't try random fixes hoping one sticks.
-- **Count registers before writing inline wrappers**: F (2 PRF calls) fits in 16 registers when inlined; H (3 PRF calls) does not. Before creating a new `inline fn` that calls hash primitives, estimate whether the combined register pressure fits x86-64's 16 GPRs. If not, use a non-inline `fn` with the scratch-buffer pattern instead.
-- **Anticipate code size**: 67 iterations × inlined SHA-256 = obvious blowup. Think about inlining depth before choosing `inline fn` vs `fn`.
-- **Test each function in isolation**: Compile and test `gen_chain` alone before building `gen_pk` on top of it. Small compilation units catch errors faster and with clearer messages.
-- **Use `reg u64` for loop counters from the start**: `reg u32` counters cause SIB addressing issues and require `(64u)` casts everywhere. Default to `reg u64` for any counter used in pointer arithmetic or array indexing.
-- **Truncate jasminc error output**: Jasmin produces very verbose compilation errors (hundreds of lines). Use `| head -15` to see only the root cause. The first error is usually the important one; the rest is dependency chain noise.
+- **Think in x86 instructions before writing Jasmin.** Jasmin compiles to assembly — every construct maps to real instructions. Before writing a line, ask: "What instruction does this become? Does that instruction exist?" This prevents most linearization/asmgen errors.
+- **State the root cause in one sentence before attempting a fix.** If you can't articulate *why* the compiler is rejecting the code, you don't understand the problem yet. Don't try fixes until you can.
+- **Isolate before debugging.** Compile minimal `.jazz` files with one function at a time. Bisect which combination causes the conflict. This is fast and eliminates speculation.
+- **Truncate error output ruthlessly.** `| head -15`. The first error is the real one. The rest is dependency chain noise that causes context overload.
+- **Don't add complexity you haven't proven necessary.** Test the simpler hypothesis first. The wrapper functions were added because the error messages *mentioned* cross-function variables, but the actual root cause was the if/else parameter swap within a single function. One minimal test would have ruled out the cross-function theory.
+- **Jasmin is not a fast-iteration language.** The compile-read-error-fix cycle that works for Python/JS/Rust burns tokens here. Think more, compile less.
 
 ## Open questions / future work
 
