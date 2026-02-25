@@ -659,3 +659,4 @@ inline fn __xmss_F_rp(stack u8[N] node,
   result = __sha256_hash96(ibuf);
   return result;
 }
+

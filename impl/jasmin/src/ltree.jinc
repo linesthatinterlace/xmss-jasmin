@@ -1,0 +1,137 @@
+/* ltree.jinc — L-tree (RFC 8391 Algorithm 8)
+ *
+ * Reduces a WOTS+ public key (LEN elements of N bytes) to a single
+ * N-byte value using the H hash function. Handles odd-length layers
+ * by passing the odd element up unchanged.
+ *
+ * Requires: address.jinc, hash backend (sha256_n32.jinc).
+ * Params: N, LEN (param int from .jazz).
+ */
+
+/* ====================================================================
+ * __ltree — L-tree compression (RFC 8391 Algorithm 8)
+ *
+ * root_ptr:     output, N bytes
+ * pk_ptr:       input/scratch, LEN*N bytes (modified in place)
+ * seed_ptr:     N-byte public seed
+ * adrs_buf_ptr: 32-byte scratch buffer for ADRS serialization
+ *               (caller-provided so we can pass reg u64 to __xmss_H)
+ * adrs_rp:      ADRS with type=1 (L-tree) and ltree index set
+ * ==================================================================== */
+fn __ltree(reg u64 root_ptr, reg u64 pk_ptr, reg u64 seed_ptr,
+           reg u64 adrs_buf_ptr, reg ptr u32[8] adrs_rp) {
+  stack u32[8] adrs;
+  stack u8[32] adrs_bytes;
+  stack u64 s_root s_pk s_seed s_adrs_buf;
+  reg u64 len half i off_src off_dst out_p in_l_p in_r_p;
+  stack u64 s_len s_half s_i;
+  reg u32 height32 idx32;
+  reg u64 height;
+  stack u64 s_height;
+  reg u8 b;
+  inline int j;
+
+  /* Copy ADRS to local */
+  for j = 0 to 8 { adrs[j] = adrs_rp[j]; }
+  s_root = root_ptr;
+  s_pk = pk_ptr;
+  s_seed = seed_ptr;
+  s_adrs_buf = adrs_buf_ptr;
+
+  len = LEN;
+  height = 0;
+
+  while (len > 1) {
+    half = len;
+    half >>= 1;
+    s_len = len;
+    s_half = half;
+    s_height = height;
+
+    /* Set tree height */
+    height32 = (32u)height;
+    adrs = __adrs_set_tree_height(adrs, height32);
+
+    /* Hash pairs: pk[i] = H(seed, adrs, pk[2i], pk[2i+1]) */
+    i = 0;
+    while {
+      half = s_half;
+    } (i < half) {
+      idx32 = (32u)i;
+      adrs = __adrs_set_tree_index(adrs, idx32);
+
+      /* Serialize ADRS to external scratch buffer */
+      adrs_bytes = __adrs_to_bytes(adrs);
+      adrs_buf_ptr = s_adrs_buf;
+      for j = 0 to 32 { b = adrs_bytes[j]; [:u8 adrs_buf_ptr + j] = b; }
+
+      /* Compute pointers: out=pk+i*N, in_l=pk+2i*N, in_r=pk+(2i+1)*N */
+      s_i = i;
+      pk_ptr = s_pk;
+
+      out_p = i;
+      out_p *= N;
+      out_p += pk_ptr;
+
+      in_l_p = i;
+      in_l_p <<= 1;
+      in_l_p *= N;
+      in_l_p += pk_ptr;
+
+      in_r_p = i;
+      in_r_p <<= 1;
+      in_r_p += 1;
+      in_r_p *= N;
+      in_r_p += pk_ptr;
+
+      seed_ptr = s_seed;
+      adrs_buf_ptr = s_adrs_buf;
+
+      /* Call non-inline __xmss_H — all registers will be clobbered */
+      __xmss_H(out_p, seed_ptr, adrs_buf_ptr, in_l_p, in_r_p);
+
+      i = s_i;
+      i += 1;
+    }
+
+    /* If len is odd, copy last element up: pk[half] = pk[len-1] */
+    len = s_len;
+    half = s_half;
+    off_src = len;
+    off_src &= 1;
+    if (off_src != 0) {
+      pk_ptr = s_pk;
+
+      off_src = len;
+      off_src -= 1;
+      off_src *= N;
+      off_src += pk_ptr;
+
+      off_dst = half;
+      off_dst *= N;
+      off_dst += pk_ptr;
+
+      i = 0;
+      while (i < N) {
+        b = [:u8 off_src];
+        [:u8 off_dst] = b;
+        off_src += 1;
+        off_dst += 1;
+        i += 1;
+      }
+    }
+
+    /* len = ceil(len / 2) = (len + 1) / 2 */
+    len = s_len;
+    len += 1;
+    len >>= 1;
+
+    height = s_height;
+    height += 1;
+  }
+
+  /* Copy pk[0] to root */
+  pk_ptr = s_pk;
+  root_ptr = s_root;
+  for j = 0 to N { b = [:u8 pk_ptr + j]; [:u8 root_ptr + j] = b; }
+}
