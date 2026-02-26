@@ -1,0 +1,36 @@
+/* xmss.jinc — XMSS SK/PK/Sig layout constants (RFC 8391 + Errata 7900)
+ *
+ * N=32, idx_bytes=4, XMSS-SHA2_10_256.
+ *
+ * SK (136 bytes): OID(4) | idx(4) | SK_SEED(32) | SK_PRF(32) | root(32) | SEED(32)
+ * PK  (68 bytes): OID(4) | root(32) | SEED(32)
+ * Sig (2500 bytes): idx(4) | r(32) | sig_WOTS(67*32=2144) | auth(10*32=320)
+ *
+ * Requires: params (N, LEN, TREE_HEIGHT, BDS_K) defined by the .jazz file.
+ */
+
+/* XMSS-SHA2_10_256 OID = 0x00000001 */
+param int XMSS_OID = 1;
+
+/* SK layout */
+param int SK_IDX_OFF      = 4;
+param int SK_SEED_OFF     = 8;
+param int SK_PRF_OFF      = 40;
+param int SK_ROOT_OFF     = 72;
+param int SK_PUB_SEED_OFF = 104;
+param int SK_BYTES        = 136;
+
+/* PK layout */
+param int PK_ROOT_OFF = 4;
+param int PK_SEED_OFF = 36;
+param int PK_BYTES    = 68;
+
+/* Sig layout */
+param int SIG_IDX_OFF  = 0;
+param int SIG_R_OFF    = 4;
+param int SIG_WOTS_OFF = 36;
+param int SIG_AUTH_OFF = 36 + LEN * N;
+param int SIG_BYTES    = 36 + LEN * N + TREE_HEIGHT * N;
+
+/* Maximum leaf index: 2^TREE_HEIGHT - 1 */
+param int IDX_MAX = (1 << TREE_HEIGHT) - 1;

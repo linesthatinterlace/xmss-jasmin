@@ -512,7 +512,8 @@ fn __xmss_H_msg(reg u64 out, reg u64 r, reg u64 root,
   stack u32[8] state;
   stack u64 s_out s_msglen_orig;
   reg u64 total_bits;
-  reg u32 buflen tmp32;
+  reg u64 buflen;
+  reg u32 tmp32;
   reg u8 b;
   inline int i;
 
@@ -557,7 +558,7 @@ fn __xmss_H_msg(reg u64 out, reg u64 r, reg u64 root,
 
   blk[(uint)buflen] = 0x80;
 
-  tmp32 = buflen;
+  tmp32 = (32u)buflen;
   tmp32 += 9;
   if (tmp32 >u 64) {
     blkp = blk;

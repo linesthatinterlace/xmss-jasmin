@@ -1,0 +1,475 @@
+/* test_xmss.jazz — XMSS keygen, sign, verify
+ *
+ * Params: XMSS-SHA2_10_256
+ */
+
+param int N          = 32;
+param int W          = 16;
+param int LOG2_W     = 4;
+param int LEN1       = 64;
+param int LEN2       = 3;
+param int LEN        = 67;
+param int TREE_HEIGHT = 10;
+param int BDS_K      = 2;
+
+require "../src/utils.jinc"
+require "../src/address.jinc"
+require "../src/hash/sha256_n32.jinc"
+require "../src/wots.jinc"
+require "../src/ltree.jinc"
+require "../src/treehash.jinc"
+require "../src/bds.jinc"
+require "../src/xmss.jinc"
+
+/* ====================================================================
+ * __xmss_keygen
+ *
+ * pk:      output, PK_BYTES (68 bytes)
+ * sk:      output, SK_BYTES (136 bytes)
+ * state:   output, BDS_STATE_BYTES
+ * seeds:   input, 3*N bytes: SK_SEED(32) || SK_PRF(32) || PUB_SEED(32)
+ * scratch: 32 + LEN*N + N bytes: [0..31] adrs_buf, [32..] wots_buf
+ * ==================================================================== */
+export fn test_xmss_keygen(reg u64 pk, reg u64 sk, reg u64 state,
+                            reg u64 seeds, reg u64 scratch) -> reg u64 {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_pk s_sk s_state s_seeds s_scratch;
+  reg u64 adrs_buf wots_buf r tmp src dst;
+  reg u32 oid;
+  reg u8 b;
+  inline int j;
+
+  _ = #init_msf();
+
+  s_pk = pk;
+  s_sk = sk;
+  s_state = state;
+  s_seeds = seeds;
+  s_scratch = scratch;
+
+  /* Zero ADRS (layer=0, tree=0) */
+  adrs = __adrs_zero();
+
+  /* Step 1: Build full tree, root goes to pk+PK_ROOT_OFF */
+  pk = s_pk;
+  tmp = pk;
+  tmp += PK_ROOT_OFF;
+
+  state = s_state;
+  seeds = s_seeds;              /* sk_seed = seeds+0 */
+  src = seeds;
+  src += 2 * N;                 /* pub_seed = seeds+64 */
+  adrs_buf = s_scratch;
+  wots_buf = s_scratch;
+  wots_buf += 32;
+  adrs_rp = adrs;
+
+  __bds_treehash_init(tmp, state, seeds, src, adrs_buf, adrs_rp, wots_buf);
+
+  /* Step 2: Serialize PK */
+  /* PK: OID(4) | root(32) | SEED(32) */
+  /* root already at pk+4 from treehash_init */
+  pk = s_pk;
+  oid = XMSS_OID;
+  oid = #BSWAP_32(oid);
+  [:u32 pk] = oid;
+
+  /* Copy SEED to pk+PK_SEED_OFF */
+  seeds = s_seeds;
+  src = seeds;
+  src += 2 * N;
+  pk = s_pk;
+  dst = pk;
+  dst += PK_SEED_OFF;
+  for j = 0 to N {
+    b = [:u8 src + j];
+    [:u8 dst + j] = b;
+  }
+
+  /* Step 3: Serialize SK */
+  /* SK: OID(4) | idx(4) | SK_SEED(32) | SK_PRF(32) | root(32) | SEED(32) */
+  sk = s_sk;
+  oid = XMSS_OID;
+  oid = #BSWAP_32(oid);
+  [:u32 sk] = oid;
+
+  /* idx = 0 (4 bytes) */
+  sk = s_sk;
+  tmp = sk;
+  tmp += SK_IDX_OFF;
+  r = 0;
+  __ull_to_bytes(tmp, 4, r);
+
+  /* Copy SK_SEED from seeds[0..31] */
+  seeds = s_seeds;
+  sk = s_sk;
+  dst = sk;
+  dst += SK_SEED_OFF;
+  for j = 0 to N {
+    b = [:u8 seeds + j];
+    [:u8 dst + j] = b;
+  }
+
+  /* Copy SK_PRF from seeds[32..63] */
+  seeds = s_seeds;
+  src = seeds;
+  src += N;
+  sk = s_sk;
+  dst = sk;
+  dst += SK_PRF_OFF;
+  for j = 0 to N {
+    b = [:u8 src + j];
+    [:u8 dst + j] = b;
+  }
+
+  /* Copy root from pk+PK_ROOT_OFF to sk+SK_ROOT_OFF */
+  pk = s_pk;
+  src = pk;
+  src += PK_ROOT_OFF;
+  sk = s_sk;
+  dst = sk;
+  dst += SK_ROOT_OFF;
+  for j = 0 to N {
+    b = [:u8 src + j];
+    [:u8 dst + j] = b;
+  }
+
+  /* Copy SEED from seeds[64..95] to sk+SK_PUB_SEED_OFF */
+  seeds = s_seeds;
+  src = seeds;
+  src += 2 * N;
+  sk = s_sk;
+  dst = sk;
+  dst += SK_PUB_SEED_OFF;
+  for j = 0 to N {
+    b = [:u8 src + j];
+    [:u8 dst + j] = b;
+  }
+
+  ?{}, r = #set0();
+  return r;
+}
+
+/* ====================================================================
+ * __xmss_sign
+ *
+ * sig:     output, SIG_BYTES (2500 bytes)
+ * msg:     input, msglen bytes
+ * msglen:  message length
+ * sk:      input/output, SK_BYTES (idx gets incremented)
+ * state:   input/output, BDS_STATE_BYTES
+ * scratch: 64 + LEN*N + N bytes
+ *          [0..31]  idx_buf / adrs_buf
+ *          [32..63] m_hash
+ *          [64..]   wots_buf (LEN*N + N)
+ *
+ * Returns 0 on success, 1 on index exhaustion.
+ * ==================================================================== */
+export fn test_xmss_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
+                          reg u64 sk, reg u64 state,
+                          reg u64 scratch) -> reg u64 {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_sig s_msg s_msglen s_sk s_state s_scratch s_idx;
+  reg u64 r tmp src dst idx adrs_buf wots_buf;
+  reg u32 idx32 ots32 zero32;
+  reg u8 b;
+  inline int j k;
+
+  _ = #init_msf();
+
+  s_sig = sig;
+  s_msg = msg;
+  s_msglen = msglen;
+  s_sk = sk;
+  s_state = state;
+  s_scratch = scratch;
+
+  /* Step 1: Read idx from sk+SK_IDX_OFF (4 bytes big-endian) */
+  sk = s_sk;
+  tmp = sk;
+  tmp += SK_IDX_OFF;
+  idx = __bytes_to_ull(tmp, 4);
+
+  /* Check idx > IDX_MAX → set r=1, skip body */
+  r = 1;
+  if (idx <=u IDX_MAX) {
+
+    s_idx = idx;
+
+    /* Step 2: Increment idx in SK */
+    sk = s_sk;
+    tmp = sk;
+    tmp += SK_IDX_OFF;
+    r = idx;
+    r += 1;
+    __ull_to_bytes(tmp, 4, r);
+
+    /* Step 3: toByte(idx, 32) → scratch[0..31] */
+    idx = s_idx;
+    scratch = s_scratch;
+    __ull_to_bytes(scratch, 32, idx);
+
+    /* Step 4: PRF_idx(r, sk_prf, idx_32bytes) → sig+SIG_R_OFF */
+    sig = s_sig;
+    dst = sig;
+    dst += SIG_R_OFF;
+    sk = s_sk;
+    src = sk;
+    src += SK_PRF_OFF;
+    scratch = s_scratch;
+    __xmss_PRF_idx(dst, src, scratch);
+
+    /* Step 5: H_msg(m_hash, r, root, idx_bytes, msg, msglen) → scratch+32 */
+    scratch = s_scratch;
+    dst = scratch;
+    dst += 32;
+    sig = s_sig;
+    src = sig;
+    src += SIG_R_OFF;
+    sk = s_sk;
+    tmp = sk;
+    tmp += SK_ROOT_OFF;
+    scratch = s_scratch;
+    msg = s_msg;
+    msglen = s_msglen;
+    __xmss_H_msg(dst, src, tmp, scratch, msg, msglen);
+
+    /* Step 6: Write idx to sig[0..3] */
+    sig = s_sig;
+    idx = s_idx;
+    __ull_to_bytes(sig, 4, idx);
+
+    /* Step 7: Set up ADRS for WOTS sign */
+    adrs = __adrs_zero();
+    adrs = __adrs_set_type(adrs, 0);
+    idx = s_idx;
+    ots32 = (32u)idx;
+    adrs = __adrs_set_ots(adrs, ots32);
+
+    /* Step 8: wots_sign(sig+36, m_hash, sk_seed, pub_seed, adrs) */
+    sig = s_sig;
+    dst = sig;
+    dst += SIG_WOTS_OFF;
+    scratch = s_scratch;
+    src = scratch;
+    src += 32;
+    sk = s_sk;
+    tmp = sk;
+    tmp += SK_SEED_OFF;
+    sk = s_sk;
+    wots_buf = sk;
+    wots_buf += SK_PUB_SEED_OFF;
+    adrs_rp = adrs;
+    __wots_sign(dst, src, tmp, wots_buf, adrs_rp);
+
+    /* Step 9: Copy auth path from state to sig */
+    state = s_state;
+    sig = s_sig;
+    for j = 0 to TREE_HEIGHT {
+      src = state;
+      src += BDS_AUTH_OFF + j * N;
+      dst = sig;
+      dst += SIG_AUTH_OFF + j * N;
+      for k = 0 to N {
+        b = [:u8 src + k];
+        [:u8 dst + k] = b;
+      }
+    }
+
+    /* Step 10: BDS round */
+    scratch = s_scratch;
+    __memzero(scratch, 32);
+
+    adrs = __adrs_zero();
+
+    state = s_state;
+    idx = s_idx;
+    idx32 = (32u)idx;
+    sk = s_sk;
+    src = sk;
+    src += SK_SEED_OFF;
+    sk = s_sk;
+    tmp = sk;
+    tmp += SK_PUB_SEED_OFF;
+    scratch = s_scratch;
+    wots_buf = scratch;
+    wots_buf += 64;
+    adrs_rp = adrs;
+    __bds_round(state, idx32, src, tmp, scratch, adrs_rp, wots_buf);
+
+    /* Step 11: BDS treehash update */
+    state = s_state;
+    zero32 = (TREE_HEIGHT - BDS_K) / 2;
+    sk = s_sk;
+    src = sk;
+    src += SK_SEED_OFF;
+    sk = s_sk;
+    tmp = sk;
+    tmp += SK_PUB_SEED_OFF;
+    scratch = s_scratch;
+    adrs_buf = scratch;
+    wots_buf = scratch;
+    wots_buf += 64;
+    adrs_rp = adrs;
+    __bds_treehash_update(state, zero32, src, tmp, adrs_buf, adrs_rp, wots_buf);
+
+    ?{}, r = #set0();
+  }
+
+  return r;
+}
+
+/* ====================================================================
+ * __xmss_verify
+ *
+ * msg:     input, msglen bytes
+ * msglen:  message length
+ * sig:     input, SIG_BYTES (2500 bytes)
+ * pk:      input, PK_BYTES (68 bytes)
+ * scratch: 96 + LEN*N bytes
+ *          [0..31]  idx_buf / adrs_buf
+ *          [32..63] m_hash
+ *          [64..95] leaf / computed_root
+ *          [96..]   wots_pk (LEN*N)
+ *
+ * Returns 0 if valid, non-zero if invalid.
+ * ==================================================================== */
+export fn test_xmss_verify(reg u64 msg, reg u64 msglen, reg u64 sig,
+                            reg u64 pk, reg u64 scratch) -> reg u64 {
+  stack u32[8] adrs;
+  stack u8[32] adrs_bytes;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_msg s_msglen s_sig s_pk s_scratch s_idx;
+  reg u64 r tmp src dst idx adrs_buf;
+  reg u32 idx32;
+  reg u8 b;
+  inline int j;
+
+  _ = #init_msf();
+
+  s_msg = msg;
+  s_msglen = msglen;
+  s_sig = sig;
+  s_pk = pk;
+  s_scratch = scratch;
+
+  /* Step 1: Read idx from sig[0..3] */
+  sig = s_sig;
+  idx = __bytes_to_ull(sig, 4);
+
+  r = 1;
+  if (idx <=u IDX_MAX) {
+
+    s_idx = idx;
+
+    /* Step 2: toByte(idx, 32) → scratch[0..31] */
+    scratch = s_scratch;
+    __ull_to_bytes(scratch, 32, idx);
+
+    /* Step 3: H_msg(m_hash, r, pk_root, idx_bytes, msg, msglen) */
+    scratch = s_scratch;
+    dst = scratch;
+    dst += 32;
+    sig = s_sig;
+    src = sig;
+    src += SIG_R_OFF;
+    pk = s_pk;
+    tmp = pk;
+    tmp += PK_ROOT_OFF;
+    scratch = s_scratch;
+    msg = s_msg;
+    msglen = s_msglen;
+    __xmss_H_msg(dst, src, tmp, scratch, msg, msglen);
+
+    /* Step 4: ADRS type=OTS, ots=idx */
+    adrs = __adrs_zero();
+    adrs = __adrs_set_type(adrs, 0);
+    idx = s_idx;
+    idx32 = (32u)idx;
+    adrs = __adrs_set_ots(adrs, idx32);
+
+    /* Step 5: wots_pk_from_sig(wots_pk, sig_wots, m_hash, pub_seed, adrs) */
+    scratch = s_scratch;
+    dst = scratch;
+    dst += 96;
+    sig = s_sig;
+    src = sig;
+    src += SIG_WOTS_OFF;
+    scratch = s_scratch;
+    tmp = scratch;
+    tmp += 32;
+    pk = s_pk;
+    adrs_buf = pk;
+    adrs_buf += PK_SEED_OFF;
+    adrs_rp = adrs;
+    __wots_pk_from_sig(dst, src, tmp, adrs_buf, adrs_rp);
+
+    /* Step 6: ADRS type=LTREE, ltree=idx */
+    adrs = __adrs_set_type(adrs, 1);
+    idx = s_idx;
+    idx32 = (32u)idx;
+    adrs = __adrs_set_ltree(adrs, idx32);
+
+    /* Serialize ADRS to scratch[0..31] */
+    adrs_bytes = __adrs_to_bytes(adrs);
+    scratch = s_scratch;
+    for j = 0 to 32 {
+      b = adrs_bytes[j];
+      [:u8 scratch + j] = b;
+    }
+
+    /* Step 7: ltree(leaf, wots_pk, pub_seed, adrs_buf, adrs) */
+    scratch = s_scratch;
+    dst = scratch;
+    dst += 64;
+    src = scratch;
+    src += 96;
+    pk = s_pk;
+    tmp = pk;
+    tmp += PK_SEED_OFF;
+    scratch = s_scratch;
+    adrs_rp = adrs;
+    __ltree(dst, src, tmp, scratch, adrs_rp);
+
+    /* Step 8: ADRS type=HASH_TREE */
+    adrs = __adrs_set_type(adrs, 2);
+
+    /* Serialize ADRS to scratch[0..31] */
+    adrs_bytes = __adrs_to_bytes(adrs);
+    scratch = s_scratch;
+    for j = 0 to 32 {
+      b = adrs_bytes[j];
+      [:u8 scratch + j] = b;
+    }
+
+    /* Step 9: compute_root(root, leaf, idx, auth, pub_seed, adrs_buf, adrs) */
+    scratch = s_scratch;
+    dst = scratch;
+    dst += 64;
+    src = dst;
+    idx = s_idx;
+    idx32 = (32u)idx;
+    sig = s_sig;
+    tmp = sig;
+    tmp += SIG_AUTH_OFF;
+    pk = s_pk;
+    adrs_buf = pk;
+    adrs_buf += PK_SEED_OFF;
+    scratch = s_scratch;
+    adrs_rp = adrs;
+    __compute_root(dst, src, idx32, tmp, adrs_buf, scratch, adrs_rp);
+
+    /* Step 10: ct_memcmp(computed_root, pk+PK_ROOT_OFF, N) */
+    scratch = s_scratch;
+    src = scratch;
+    src += 64;
+    pk = s_pk;
+    dst = pk;
+    dst += PK_ROOT_OFF;
+    r = __ct_memcmp(src, dst, N);
+  }
+
+  return r;
+}
