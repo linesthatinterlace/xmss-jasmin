@@ -162,6 +162,7 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Test each function in isolation before combining.** Compile minimal `.jazz` files with one function at a time. Small compilation units catch errors faster and with clearer messages.
 - **Roundtrip tests as first validation.** A sign→pk_from_sig roundtrip exercises multiple components at once, catching most algorithmic bugs immediately.
 - **Front-load understanding of the problem domain before writing.** Investing in reading the reference implementation, all existing code, and test patterns before writing a single line meant structural correctness on the first draft. Mechanical errors are cheaper to fix than architectural ones.
+- **Characterise the failure pattern before diving into root cause.** A small diagnostic (call 3 times, compare pairs) immediately revealed: root non-deterministic, state always correct, calls 1 and 3 match but 2 differs. This ruled out algorithmic errors and pointed directly at uninitialized memory — saving hours of fruitless code review.
 
 ### Even Better If
 - **Think in x86 instructions before writing Jasmin.** Jasmin compiles to assembly — every construct maps to real instructions. Before writing a line, ask: "What instruction does this become? Does that instruction exist?" This prevents most linearization/asmgen errors.
@@ -171,10 +172,11 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Don't add complexity you haven't proven necessary.** Test the simpler hypothesis first. The wrapper functions were added because the error messages *mentioned* cross-function variables, but the actual root cause was the if/else parameter swap within a single function. One minimal test would have ruled out the cross-function theory.
 - **Jasmin is not a fast-iteration language.** The compile-read-error-fix cycle that works for Python/JS/Rust burns tokens here. Think more, compile less.
 - **Shorten the feedback loop, especially in unforgiving languages.** Writing everything before the first compile trades a fast "does this approach work?" signal for a large, tangled error. Validate the riskiest integration point first (here: the first fn that calls into existing code), then build outward.
+- **Use runtime tools before code review for runtime bugs.** Valgrind found the uninitialized-stack-read in seconds; manual code review of 1100 lines of register-spill-heavy Jasmin could not. When a bug manifests at runtime (wrong output, non-determinism, crashes), reach for `valgrind`, `gdb`, or targeted printfs *first*. Reserve code review for compile-time errors and design issues where tools can't help.
 
 ## Open questions / future work
 
-- Decide on build system (simple Makefile vs CMake integration with the rest of the project).
+- Build system is a simple Makefile with conservative `.jinc` dependency tracking. Consider CMake integration later if needed.
 - Decide whether to share the CMake `XMSS_TEST_TIMEOUT_SCALE` mechanism or keep Jasmin tests independent.
 - EasyCrypt proof strategy: which properties to prove first (CT? functional correctness of WOTS+?).
 - RISC-V backend: track Jasmin upstream; port once backend is stable. **Prerequisite**: complete the RISC-V instruction analysis (see Architecture section above) to understand what backend support is actually needed.

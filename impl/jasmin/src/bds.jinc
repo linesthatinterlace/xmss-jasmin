@@ -293,15 +293,15 @@ fn __bds_treehash_init(reg u64 root, reg u64 state, reg u64 sk_seed,
   stack u8[32] adrs_bytes;
 
   /* Spill slots */
-  stack u64 s_root s_state s_sk s_seed s_adrs_buf s_wots;
-  stack u32 s_idx s_stkoff;
+  stack u64 s_root s_state s_sk s_seed s_adrs_buf s_wots s_stkoff;
+  stack u32 s_idx;
 
-  reg u64 idx64 stkoff64 src dst nodeh64 level64;
-  reg u32 idx32 nodeh stkoff lastnode;
+  reg u64 stkoff dst nodeh64;
+  reg u32 idx32 nodeh;
   reg u32 i_shifted th_h0 th_zero;
   reg u64 tmp tmp2;
   reg u64 h_out h_seed h_adrs h_left h_right;
-  reg u8 b comp one_u8;
+  reg u8 b comp;
   reg ptr u32[8] adrs_p;
   inline int j ii;
 
@@ -321,7 +321,6 @@ fn __bds_treehash_init(reg u64 root, reg u64 state, reg u64 sk_seed,
     __th_h_set_rt(state, (64u)ii, th_h0);
     comp = 1;
     __th_completed_set_rt(state, (64u)ii, comp);
-    th_zero = 0;
     b = 0;
     __th_stack_usage_set_rt(state, (64u)ii, b);
   }
@@ -335,36 +334,17 @@ fn __bds_treehash_init(reg u64 root, reg u64 state, reg u64 sk_seed,
   /* Zero local heights */
   for j = 0 to TREE_HEIGHT + 1 { heights[j] = 0; }
 
-  stkoff = 0;  /* local stack offset */
+  stkoff = 0;  /* local stack offset (u64 for safe stack indexing) */
   s_stkoff = stkoff;
 
   /* Main loop: iterate 2^TREE_HEIGHT leaves */
   idx32 = 0;
-  lastnode = 1 << TREE_HEIGHT;
 
-  while (idx32 <u lastnode) {
+  while (idx32 <u 1 << TREE_HEIGHT) {
     s_idx = idx32;
 
     /* --- gen_leaf into nodes[stkoff] --- */
-    stkoff = s_stkoff;
-    stkoff64 = (64u)stkoff;
-    stkoff64 *= N;
-
-    /* We can't take address of stack array, so we need a different approach.
-     * Use a temporary N-byte area in the adrs_buf? No — we need it for ADRS.
-     *
-     * Problem: __gen_leaf writes to reg u64 pointer, but nodes is on stack.
-     * Solution: gen_leaf writes into wots_buf temporarily (first N bytes
-     * after gen_leaf finishes, wots_buf is clobbered anyway), then we copy
-     * from wots_buf to nodes[stkoff].
-     *
-     * Actually, we'll use a separate scratch area. The caller provides
-     * wots_buf which is LEN*N bytes — we can use it as both WOTS scratch
-     * and leaf output since gen_leaf produces the leaf AFTER using wots_buf
-     * for WOTS keygen. But ltree writes to leaf_ptr and reads from pk_ptr
-     * (wots_buf), so they must be different.
-     *
-     * Let's use root as a temporary leaf output buffer (N bytes), then copy
+    /* Use root as a temporary leaf output buffer (N bytes), then copy
      * to nodes[stkoff]. Root is N bytes and isn't needed until the end. */
 
     root = s_root;
@@ -379,11 +359,11 @@ fn __bds_treehash_init(reg u64 root, reg u64 state, reg u64 sk_seed,
     /* Copy root (leaf output) → nodes[stkoff] */
     root = s_root;
     stkoff = s_stkoff;
-    stkoff64 = (64u)stkoff;
-    stkoff64 *= N;
+    tmp = stkoff;
+    tmp *= N;
     for j = 0 to N {
       b = [:u8 root + j];
-      nodes[(uint)(stkoff64 + j)] = b;
+      nodes[(uint)(tmp + j)] = b;
     }
 
     /* heights[stkoff] = 0 */
@@ -421,11 +401,11 @@ fn __bds_treehash_init(reg u64 root, reg u64 state, reg u64 sk_seed,
         /* Copy nodes[stkoff-1] to auth[nodeh] */
         stkoff = s_stkoff;
         stkoff -= 1;
-        stkoff64 = (64u)stkoff;
-        stkoff64 *= N;
+        tmp = stkoff;
+        tmp *= N;
         dst = __bds_auth_ptr_rt(state, nodeh64);
         for j = 0 to N {
-          b = nodes[(uint)(stkoff64 + j)];
+          b = nodes[(uint)(tmp + j)];
           [:u8 dst + j] = b;
         }
       }
@@ -435,12 +415,12 @@ fn __bds_treehash_init(reg u64 root, reg u64 state, reg u64 sk_seed,
         if (nodeh <u TREE_HEIGHT - BDS_K) {
           stkoff = s_stkoff;
           stkoff -= 1;
-          stkoff64 = (64u)stkoff;
-          stkoff64 *= N;
+          tmp = stkoff;
+          tmp *= N;
           state = s_state;
           dst = __th_node_ptr_rt(state, nodeh64);
           for j = 0 to N {
-            b = nodes[(uint)(stkoff64 + j)];
+            b = nodes[(uint)(tmp + j)];
             [:u8 dst + j] = b;
           }
         }
@@ -468,12 +448,12 @@ fn __bds_treehash_init(reg u64 root, reg u64 state, reg u64 sk_seed,
 
         stkoff = s_stkoff;
         stkoff -= 1;
-        stkoff64 = (64u)stkoff;
-        stkoff64 *= N;
         state = s_state;
         dst = __bds_retain_ptr(state, tmp);
+        tmp = stkoff;
+        tmp *= N;
         for j = 0 to N {
-          b = nodes[(uint)(stkoff64 + j)];
+          b = nodes[(uint)(tmp + j)];
           [:u8 dst + j] = b;
         }
       }
@@ -481,7 +461,8 @@ fn __bds_treehash_init(reg u64 root, reg u64 state, reg u64 sk_seed,
       /* --- Merge: H(left=nodes[stkoff-2], right=nodes[stkoff-1]) → nodes[stkoff-2] --- */
       /* Set ADRS: type=2, tree_height=nodeh, tree_index=idx>>(nodeh+1) */
       adrs = __adrs_set_type(adrs, 2);
-      nodeh = heights[(uint)(stkoff - 2)]; /* reload */
+      stkoff = s_stkoff; /* reload — capture blocks above clobbered stkoff */
+      nodeh = heights[(uint)(stkoff - 2)];
       adrs = __adrs_set_tree_height(adrs, nodeh);
 
       /* tree_index = idx >> (nodeh+1) via constant-shift loop */
@@ -499,37 +480,27 @@ fn __bds_treehash_init(reg u64 root, reg u64 state, reg u64 sk_seed,
       adrs_buf = s_adrs_buf;
       for j = 0 to 32 { b = adrs_bytes[j]; [:u8 adrs_buf + j] = b; }
 
-      /* We need to pass pointers to nodes[stkoff-2] and nodes[stkoff-1]
-       * to __xmss_H, but these are on the Jasmin stack — no reg u64 pointer.
-       *
-       * Workaround: copy left and right to root (output) and root+N as
-       * temporary storage, call H, copy result back to nodes[stkoff-2].
-       * We use root ptr as temp since it's N bytes and we can use
-       * adjacent memory (root is caller-provided, assumed >= 2*N).
-       *
-       * Actually root may only be N bytes. Let's use wots_buf instead —
-       * it's LEN*N bytes. Copy left to wots_buf[0..N-1], right to wots_buf[N..2N-1],
-       * call H with out=wots_buf[0], then copy back. */
+      /* Copy left and right nodes into wots_buf[0..2N-1], call H, copy back */
       stkoff = s_stkoff;
       stkoff -= 2;
-      stkoff64 = (64u)stkoff;
-      stkoff64 *= N;
+      tmp = stkoff;
+      tmp *= N;
       wots_buf = s_wots;
       /* Copy left (nodes[stkoff-2]) to wots_buf[0..N-1] */
       for j = 0 to N {
-        b = nodes[(uint)(stkoff64 + j)];
+        b = nodes[(uint)(tmp + j)];
         [:u8 wots_buf + j] = b;
       }
       /* Copy right (nodes[stkoff-1]) to wots_buf[N..2N-1] */
       stkoff = s_stkoff;
       stkoff -= 1;
-      stkoff64 = (64u)stkoff;
-      stkoff64 *= N;
-      tmp = s_wots;
-      tmp += N;
+      tmp = stkoff;
+      tmp *= N;
+      tmp2 = s_wots;
+      tmp2 += N;
       for j = 0 to N {
-        b = nodes[(uint)(stkoff64 + j)];
-        [:u8 tmp + j] = b;
+        b = nodes[(uint)(tmp + j)];
+        [:u8 tmp2 + j] = b;
       }
 
       /* Call H(out, seed, adrs_buf, left, right) — all from separate reloads */
@@ -544,12 +515,12 @@ fn __bds_treehash_init(reg u64 root, reg u64 state, reg u64 sk_seed,
       /* Copy result (wots_buf[0..N-1]) back to nodes[stkoff-2] */
       stkoff = s_stkoff;
       stkoff -= 2;
-      stkoff64 = (64u)stkoff;
-      stkoff64 *= N;
+      tmp = stkoff;
+      tmp *= N;
       wots_buf = s_wots;
       for j = 0 to N {
         b = [:u8 wots_buf + j];
-        nodes[(uint)(stkoff64 + j)] = b;
+        nodes[(uint)(tmp + j)] = b;
       }
 
       /* Update heights and stack offset */
@@ -588,9 +559,9 @@ fn __treehash_update_one(reg u64 state, reg u64 level, reg u64 sk_seed,
   stack u64 s_state s_level s_sk s_seed s_adrs_buf s_wots;
   stack u32 s_nodeheight;
 
-  reg u64 src dst tmp tmp2;
+  reg u64 src dst tmp;
   reg u64 h_out h_seed h_adrs h_left h_right;
-  reg u32 nodeheight next_idx tidx stk_off th_h shu32;
+  reg u32 nodeheight next_idx tidx stk_off th_h;
   reg u8 su stkl comp b one_u8;
   reg ptr u32[8] adrs_p;
   inline int j;
@@ -603,79 +574,9 @@ fn __treehash_update_one(reg u64 state, reg u64 level, reg u64 sk_seed,
   s_adrs_buf = adrs_buf;
   s_wots = wots_buf;
 
-  /* Generate leaf at th[level].next_idx into nodebuf[0..N-1] */
-  /* We use wots_buf as scratch and write leaf to adrs_buf+0 (temporarily),
-   * then copy. Actually, use root trick: write to wots_buf[0], then copy.
-   * But gen_leaf uses wots_buf for WOTS. leaf_ptr must be separate.
-   *
-   * We'll use a small trick: pass &nodebuf as leaf output. But nodebuf
-   * is on stack and we can't get reg u64 from it.
-   *
-   * Solution: allocate an external leaf buffer. We'll write the leaf into
-   * the first N bytes of the wots_buf area AFTER gen_leaf is done.
-   * Wait — gen_leaf uses wots_buf internally. The ltree output goes to
-   * leaf_ptr, while wots_buf is used as input to ltree.
-   * So leaf_ptr and wots_buf must not overlap in the first N bytes.
-   *
-   * Use the BDS state's own stack area as temporary leaf output:
-   * write leaf to state->stack[stack_offset] temporarily, then copy to nodebuf.
-   * Actually, that's complex too.
-   *
-   * Simplest: wots_buf is LEN*N = 67*32 = 2144 bytes. gen_leaf writes to
-   * leaf_ptr (N bytes). ltree reads from wots_buf and writes to leaf_ptr.
-   * As long as leaf_ptr doesn't overlap with wots_buf, it's fine.
-   * We can use adrs_buf + 32 as leaf output (past the 32-byte ADRS area)
-   * if the caller's scratch region is big enough. But we don't know that.
-   *
-   * Actually, let's just use a dedicated stack buffer and copy byte by byte.
-   * We have nodebuf already. The problem is calling __gen_leaf which expects
-   * reg u64. We'll allocate a separate leaf buffer on stack in a wrapper.
-   *
-   * Actually, rethinking: We can use state's stack area as temp since
-   * treehash_update_one manipulates state->stack anyway. Use a high offset
-   * that's past current stack_offset.
-   *
-   * Simplest correct approach: add extra N bytes to wots_buf. The caller
-   * provides LEN*N + N bytes. The first N bytes are for leaf output,
-   * and __gen_leaf gets leaf_ptr = wots_buf, wots_buf_actual = wots_buf + N.
-   * But that changes the interface.
-   *
-   * Let me just allocate a stack u8[N] leaf_tmp and copy it into nodebuf.
-   * But we can't pass its address to gen_leaf. HOWEVER, we can inline
-   * gen_leaf's logic here instead. That's ugly but works.
-   *
-   * Best approach: reuse the root (first N bytes of wots_buf area after
-   * WOTS is done). gen_leaf writes leaf to leaf_ptr. ltree writes to
-   * leaf_ptr using wots_buf as input. So if leaf_ptr = wots_buf + LEN*N - N
-   * (last N bytes of wots_buf), it won't overlap during ltree since ltree
-   * reads pairs from low end and writes compressed nodes from low end.
-   * Actually that might overlap.
-   *
-   * Let me use a much simpler approach: use the last N bytes of the
-   * wots_buf region. wots_buf is at least LEN*N bytes = 2144. ltree
-   * processes pk_ptr = wots_buf in-place, reading from [2i*N] and
-   * writing to [i*N]. After the first layer, only the first half is used.
-   * The last N bytes at offset (LEN-1)*N are only read in the first
-   * iteration as the last pair element. By the time ltree writes its
-   * output to root_ptr (= our leaf_ptr), ltree is done reading wots_buf.
-   * Actually, ltree writes to root_ptr = leaf_ptr at the END (copies pk[0]).
-   * So leaf_ptr can be anywhere outside the wots_buf first N bytes.
-   *
-   * Actually, looking at ltree: it writes to leaf_ptr only at the very end
-   * (copies pk[0..N-1] to root_ptr). During processing it works in-place on
-   * pk_ptr. So leaf_ptr just needs to not alias pk_ptr[0..N-1].
-   *
-   * So: leaf_ptr = wots_buf + (LEN-1)*N is safe. After gen_leaf, copy
-   * from there to nodebuf. But the simplest: just use leaf_ptr = wots_buf + LEN*N.
-   * The caller needs to provide LEN*N + N bytes for wots_buf. That's our
-   * convention: the "scratch" area the test harness provides.
-   *
-   * Actually even simpler: the plan says scratch holds adrs(32) + wots_buf(LEN*N).
-   * That's 32 + 2144 = 2176 bytes. We have room at the end.
-   * Let's just document that gen_leaf uses the N bytes past wots_buf for leaf output.
-   */
-
-  /* Use wots_buf + LEN*N as temp leaf output buffer */
+  /* Generate leaf at th[level].next_idx into nodebuf[0..N-1].
+   * Leaf output goes to wots_buf + LEN*N (past the WOTS scratch area),
+   * then is copied into nodebuf. Caller must provide LEN*N + N bytes. */
   state = s_state;
   level = s_level;
   next_idx = __th_next_idx_get_rt(state, level);
@@ -866,8 +767,8 @@ fn __bds_treehash_update(reg u64 state, reg u32 updates, reg u64 sk_seed,
   stack u64 s_state s_sk s_seed s_adrs_buf s_wots;
   stack u32 s_updates s_j;
 
-  reg u64 level i64 tmp;
-  reg u32 j l_min low_val i32 stkoff_u32;
+  reg u64 level i64 tmp l_min low_val;
+  reg u32 j i32 stkoff_u32;
   reg u8 comp su;
   reg ptr u32[8] adrs_p;
   inline int jj;
@@ -899,7 +800,7 @@ fn __bds_treehash_update(reg u64 state, reg u32 updates, reg u64 sk_seed,
       } else {
         su = __th_stack_usage_get_rt(state, i64);
         if (su == 0) {
-          low_val = (32u)i64;
+          low_val = i64;
         } else {
           /* Find min height on stack for this instance */
           low_val = TREE_HEIGHT;
@@ -911,8 +812,9 @@ fn __bds_treehash_update(reg u64 state, reg u32 updates, reg u64 sk_seed,
             tmp = (64u)stkoff_u32;
             comp = __bds_stack_level_get(state, tmp);
             i32 -= 1;
-            if ((32u)comp <u low_val) {
-              low_val = (32u)comp;
+            tmp = (64u)comp;
+            if (tmp <u low_val) {
+              low_val = tmp;
             }
           }
         }
@@ -963,10 +865,10 @@ fn __bds_round(reg u64 state, reg u32 leaf_idx, reg u64 sk_seed,
   stack u64 s_state s_sk s_seed s_adrs_buf s_wots;
   stack u32 s_leaf_idx s_tau;
 
-  reg u64 tau64 i64 tmp src dst level64;
+  reg u64 tau64 i64 tmp src dst;
   reg u64 h_out h_seed h_adrs h_left h_right;
-  reg u32 tau i32 shifted bit_val leaf_val th_h0 startidx lastleaf;
-  reg u8 b comp;
+  reg u32 tau i32 shifted bit_val leaf_val th_h0 startidx;
+  reg u8 b;
   reg ptr u32[8] adrs_p;
   inline int j;
 
@@ -1113,10 +1015,10 @@ fn __bds_round(reg u64 state, reg u32 leaf_idx, reg u64 sk_seed,
 
     /* Fill auth[0..tau-1] from treehash nodes or retain */
     i64 = 0;
-    tau = s_tau;
     while {
       tau = s_tau;
-    } (i64 <u (64u)tau) {
+      tau64 = (64u)tau;
+    } (i64 <u tau64) {
       state = s_state;
 
       if ((32u)i64 <u TREE_HEIGHT - BDS_K) {
@@ -1147,10 +1049,10 @@ fn __bds_round(reg u64 state, reg u32 leaf_idx, reg u64 sk_seed,
           shifted >>= 1;
           th_h0 -= 1;
         }
-        level64 = (64u)shifted;
-        level64 -= 1;
-        level64 >>= 1;
-        tmp += level64;  /* slot = off + row */
+        tau64 = (64u)shifted;
+        tau64 -= 1;
+        tau64 >>= 1;
+        tmp += tau64;  /* slot = off + row */
 
         state = s_state;
         src = __bds_retain_ptr(state, tmp);
@@ -1166,10 +1068,10 @@ fn __bds_round(reg u64 state, reg u32 leaf_idx, reg u64 sk_seed,
 
     /* Reinitialise treehash instances for levels below tau */
     i64 = 0;
-    tau = s_tau;
     while {
       tau = s_tau;
-    } (i64 <u (64u)tau) {
+      tau64 = (64u)tau;
+    } (i64 <u tau64) {
       if ((32u)i64 <u TREE_HEIGHT - BDS_K) {
         /* startidx = leaf_idx + 1 + 3 * (1 << i) */
         leaf_val = s_leaf_idx;
@@ -1186,8 +1088,7 @@ fn __bds_round(reg u64 state, reg u32 leaf_idx, reg u64 sk_seed,
         th_h0 *= shifted;
         startidx += th_h0;
 
-        lastleaf = 1 << TREE_HEIGHT;
-        if (startidx <u lastleaf) {
+        if (startidx <u 1 << TREE_HEIGHT) {
           state = s_state;
           th_h0 = (32u)i64;
           __th_h_set_rt(state, i64, th_h0);
