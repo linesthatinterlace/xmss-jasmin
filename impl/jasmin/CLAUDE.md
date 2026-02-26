@@ -2,7 +2,7 @@
 
 Context for Claude Code when working on the Jasmin implementation of XMSS/XMSS-MT. All paths below are relative to `impl/jasmin/`.
 
-Status: **early / in progress**.
+Status: **XMSS single-tree complete** (keygen, sign, verify — all tested). XMSS-MT not yet started.
 
 ## What Jasmin is
 
@@ -71,48 +71,42 @@ This analysis is a prerequisite to any work on extending or contributing to Jasm
 
 ## Build commands
 
-> **Note**: Build system is not yet established. This section will be updated as it develops.
-
-Intended workflow:
-
 ```bash
-# Compile a single Jasmin source file to x86-64 assembly
-jasminc -arch x86-64 src/foo.jazz -o src/foo.s
-
-# Compile everything (once Makefile exists)
-make
-
-# Run tests (C harnesses linking against generated assembly)
-make test
+cd impl/jasmin
+make              # compile all tests
+make test         # build + run all 7 test suites
+make clean        # remove .s and binaries
+make test/test_X  # build a single test (e.g. test/test_xmss)
 ```
 
-## Directory structure (planned)
+The Makefile uses conservative dependency tracking: all `.jinc` files are deps of every `.jazz` → `.s` rule (jasminc has no `-MMD`).
+
+## Directory structure
 
 ```
 impl/jasmin/
   CLAUDE.md
-  Makefile              (to be created)
+  blueprint.md          Implementation blueprint (design decisions, full implementation order)
+  SKILL.md              Jasmin language reference, pitfalls, patterns
+  Makefile
   src/
     hash/
-      sha256.jazz       SHA-256 compression function
-      sha512.jazz       SHA-512 compression function
-      shake128.jazz     SHAKE-128 (Keccak-based)
-      shake256.jazz     SHAKE-256 (Keccak-based)
-    address.jazz        ADRS type and setters
-    utils.jazz          ull_to_bytes, bytes_to_ull, ct_memcmp, memzero
-    wots.jazz           WOTS+ sign, pkFromSig
-    ltree.jazz          L-tree hash
-    treehash.jazz       treehash and stack
-    bds.jazz            BDS state, bds_update, bds_treehash_update
-    xmss.jazz           XMSS keygen, sign, verify
-    xmssmt.jazz         XMSS-MT keygen, sign, verify
+      sha256_n32.jinc   SHA-256 backend (N=32) — DONE
+    address.jinc        ADRS type and setters — DONE
+    utils.jinc          ull_to_bytes, bytes_to_ull, ct_memcmp, memzero — DONE
+    wots.jinc           WOTS+ gen_pk, sign, pk_from_sig — DONE
+    ltree.jinc          L-tree hash — DONE
+    treehash.jinc       treehash and compute_root — DONE
+    bds.jinc            BDS state management — DONE
+    xmss.jinc           SK/PK/Sig layout constants — DONE
   test/
-    (C harnesses that link against generated .s files and call exported Jasmin functions)
+    test_*.jazz         Jasmin test wrappers (export fn for C harness)
+    test_*.c            C test harnesses
   proof/
     (EasyCrypt proof files — later)
 ```
 
-Hash implementations should be written from scratch in Jasmin (not auto-generated wrappers), consistent with the rest of the project.
+Note: algorithm code lives in `.jinc` files (included via `require`). The `.jazz` files define `param int` constants and `require` the `.jinc` modules. Currently only test `.jazz` files exist; production `.jazz` files (e.g. `jade_xmss_sha2_10_256.jazz`) will be added later.
 
 ## Jasmin language notes
 
@@ -163,6 +157,7 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Roundtrip tests as first validation.** A sign→pk_from_sig roundtrip exercises multiple components at once, catching most algorithmic bugs immediately.
 - **Front-load understanding of the problem domain before writing.** Investing in reading the reference implementation, all existing code, and test patterns before writing a single line meant structural correctness on the first draft. Mechanical errors are cheaper to fix than architectural ones.
 - **Characterise the failure pattern before diving into root cause.** A small diagnostic (call 3 times, compare pairs) immediately revealed: root non-deterministic, state always correct, calls 1 and 3 match but 2 differs. This ruled out algorithmic errors and pointed directly at uninitialized memory — saving hours of fruitless code review.
+- **Architecture that composes cleanly pays off at integration time.** The xmss.jinc session assembled keygen/sign/verify from existing building blocks with zero algorithmic bugs — all 6 tests passed on the first run. This was a direct result of the scratch-buffer convention, consistent function signatures, and testing each layer before building on it.
 
 ### Even Better If
 - **Think in x86 instructions before writing Jasmin.** Jasmin compiles to assembly — every construct maps to real instructions. Before writing a line, ask: "What instruction does this become? Does that instruction exist?" This prevents most linearization/asmgen errors.
@@ -173,11 +168,34 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Jasmin is not a fast-iteration language.** The compile-read-error-fix cycle that works for Python/JS/Rust burns tokens here. Think more, compile less.
 - **Shorten the feedback loop, especially in unforgiving languages.** Writing everything before the first compile trades a fast "does this approach work?" signal for a large, tangled error. Validate the riskiest integration point first (here: the first fn that calls into existing code), then build outward.
 - **Use runtime tools before code review for runtime bugs.** Valgrind found the uninitialized-stack-read in seconds; manual code review of 1100 lines of register-spill-heavy Jasmin could not. When a bug manifests at runtime (wrong output, non-determinism, crashes), reach for `valgrind`, `gdb`, or targeted printfs *first*. Reserve code review for compile-time errors and design issues where tools can't help.
+- **Consult your own notes before debugging.** When hitting a compiler error, check MEMORY.md and SKILL.md *first* — don't start reading source code and exploring. Three of four compile errors in the xmss.jinc session were already-documented patterns (no early returns, u64 for stack indexing, require chain). Reading notes for 10 seconds beats a debug chain.
+- **Discover all project documents at session start.** Missing `blueprint.md` meant missing the full implementation order, phase gates, and cross-implementation verification requirements. At the start of a session, glob for `*.md` in the working directory — don't assume CLAUDE.md is the only guide.
 
-## Open questions / future work
+## What's next
 
-- Build system is a simple Makefile with conservative `.jinc` dependency tracking. Consider CMake integration later if needed.
-- Decide whether to share the CMake `XMSS_TEST_TIMEOUT_SCALE` mechanism or keep Jasmin tests independent.
+See `blueprint.md` for the full implementation plan including design decisions and implementation order. We are through item 11 of 14. Remaining work:
+
+### Phase 1 completion (XMSS single-tree)
+
+- [ ] **KAT cross-validation** (blueprint item 12): Jasmin output must match C KAT fingerprints from `test_xmss_kat`. Requires building a Jasmin `.jazz` that produces the same output format as the C KAT generator.
+- [ ] **Cross-implementation verification** (blueprint §10): C sign → Jasmin verify, Jasmin sign → C verify, using identical seeds. Currently we only test Jasmin→Jasmin roundtrips.
+- [ ] **CT check** (blueprint item 13): Run `jasminc -CT` on all `.jazz` files. Any violation is a blocker.
+- [ ] **Additional parameter sets** (blueprint item 14): h=16 and h=20 `.jazz` files, reusing all `.jinc` unchanged.
+- [ ] **CI integration**: Add a Jasmin job to `.github/workflows/ci.yml` that installs `jasminc` and runs `make test`. Currently CI only covers the C implementation.
+- [ ] **Code review**: Full review of all Jasmin code once Phase 1 is complete.
+
+### Phase 2 (XMSS-MT)
+
+- [ ] **`src/xmssmt.jinc`**: XMSS-MT keygen, sign, verify with hypertree structure. See blueprint §6.8.
+- [ ] **`__bds_state_update`** in `bds.jinc`: Used by XMSS-MT only (currently stubbed). See blueprint §6.6.
+
+### Phase 3 (additional hash backends)
+
+- [ ] SHA-512 backend (`src/hash/sha512_n64.jinc`)
+- [ ] SHAKE-128/256 backends
+
+### Longer-term
+
 - EasyCrypt proof strategy: which properties to prove first (CT? functional correctness of WOTS+?).
-- RISC-V backend: track Jasmin upstream; port once backend is stable. **Prerequisite**: complete the RISC-V instruction analysis (see Architecture section above) to understand what backend support is actually needed.
+- RISC-V backend: track Jasmin upstream; port once backend is stable. **Prerequisite**: complete the RISC-V instruction analysis (see Architecture section) to understand what backend support is actually needed.
 - Possible libjade integration or contribution.
