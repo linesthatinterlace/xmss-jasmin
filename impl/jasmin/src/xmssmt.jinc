@@ -1,0 +1,916 @@
+/* xmssmt.jinc — XMSS-MT keygen, sign, verify (RFC 8391 §4.2)
+ *
+ * Hypertree with D layers of XMSS trees, each of height TREE_HEIGHT.
+ * Targets XMSSMT-SHA2_20/2_256 first (same per-tree params as XMSS-SHA2_10_256).
+ *
+ * SK (135 bytes): OID(4) | idx(3) | SK_SEED(32) | SK_PRF(32) | root(32) | SEED(32)
+ * PK  (68 bytes): OID(4) | root(32) | SEED(32)
+ * Sig (4963 bytes): idx(3) | r(32) | D x [sig_WOTS(67*32=2144) | auth(10*32=320)]
+ *
+ * Requires: utils.jinc, address.jinc, sha256_n32.jinc, wots.jinc, ltree.jinc,
+ *           treehash.jinc, bds.jinc.
+ * Params: N, LEN, TREE_HEIGHT, BDS_K, D, FULL_H, IDX_BYTES (param int from .jazz).
+ */
+
+/* ====================================================================
+ * Part A: XMSS-MT constants
+ * ==================================================================== */
+
+/* XMSSMT-SHA2_20/2_256 OID = 0x01000001 (internal), RFC OID = 0x00000001 */
+param int XMSSMT_OID = 0x00000001;
+
+/* SK layout: OID(4) | idx(IDX_BYTES) | SK_SEED(N) | SK_PRF(N) | root(N) | SEED(N) */
+param int MT_SK_IDX_OFF      = 4;
+param int MT_SK_SEED_OFF     = 4 + IDX_BYTES;
+param int MT_SK_PRF_OFF      = 4 + IDX_BYTES + N;
+param int MT_SK_ROOT_OFF     = 4 + IDX_BYTES + 2 * N;
+param int MT_SK_PUB_SEED_OFF = 4 + IDX_BYTES + 3 * N;
+param int MT_SK_BYTES        = 4 + IDX_BYTES + 4 * N;
+
+/* PK layout: OID(4) | root(N) | SEED(N) — same as XMSS */
+param int MT_PK_ROOT_OFF = 4;
+param int MT_PK_SEED_OFF = 4 + N;
+param int MT_PK_BYTES    = 4 + 2 * N;
+
+/* Sig layout: idx(IDX_BYTES) | r(N) | D x [sig_WOTS(LEN*N) | auth(TREE_HEIGHT*N)] */
+param int MT_SIG_R_OFF    = IDX_BYTES;
+param int MT_SIG_DATA_OFF = IDX_BYTES + N;
+/* Per-layer reduced signature size */
+param int MT_REDUCED_SIG  = LEN * N + TREE_HEIGHT * N;
+param int MT_SIG_BYTES    = IDX_BYTES + N + D * (LEN * N + TREE_HEIGHT * N);
+
+/* Maximum leaf index: 2^FULL_H - 1 */
+param int MT_IDX_MAX = (1 << FULL_H) - 1;
+
+/* ====================================================================
+ * Part B: MT state layout (flat buffer, caller-provided)
+ *
+ * bds[0..D-1]    = current tree state for each layer
+ * bds[D..2*D-2]  = "next" tree state for layers 0..D-2
+ * wots_sigs[0..D-2] = cached WOTS signatures of lower-layer roots
+ * ==================================================================== */
+
+param int MT_NUM_BDS       = 2 * D - 1;
+param int MT_BDS_SIZE      = MT_NUM_BDS * BDS_STATE_BYTES;
+param int MT_WOTS_SIG_SIZE = LEN * N;
+param int MT_STATE_BYTES   = MT_NUM_BDS * BDS_STATE_BYTES + (D - 1) * LEN * N;
+
+/* Inline accessors for MT state fields */
+/* bds[i] pointer: mt_state + i * BDS_STATE_BYTES */
+inline fn __mt_bds_ptr(reg u64 mt_state, reg u64 i) -> reg u64 {
+  reg u64 p;
+  p = i;
+  p *= BDS_STATE_BYTES;
+  p += mt_state;
+  return p;
+}
+
+/* wots_sigs[i] pointer: mt_state + MT_BDS_SIZE + i * LEN * N */
+inline fn __mt_wots_sig_ptr(reg u64 mt_state, reg u64 i) -> reg u64 {
+  reg u64 p;
+  p = i;
+  p *= MT_WOTS_SIG_SIZE;
+  p += MT_BDS_SIZE;
+  p += mt_state;
+  return p;
+}
+
+/* ====================================================================
+ * Part C: __xmssmt_verify — XMSS-MT signature verification
+ *
+ * msg:     input, msglen bytes
+ * msglen:  message length
+ * sig:     input, MT_SIG_BYTES
+ * pk:      input, MT_PK_BYTES
+ * scratch: 96 + LEN*N bytes (same as XMSS verify)
+ *          [0..31]  idx_buf / adrs_buf
+ *          [32..63] computed_root
+ *          [64..95] leaf
+ *          [96..]   wots_pk (LEN*N)
+ *
+ * Returns 0 if valid, non-zero if invalid.
+ * ==================================================================== */
+fn __xmssmt_verify(reg u64 msg, reg u64 msglen, reg u64 sig,
+                    reg u64 pk, reg u64 scratch) -> reg u64 {
+  stack u32[8] adrs;
+  stack u8[32] adrs_bytes;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_msg s_msglen s_sig s_pk s_scratch s_idx s_sig_off;
+  stack u32 s_layer s_idx_leaf;
+  reg u64 r tmp src dst idx adrs_buf sig_off;
+  reg u32 layer32 idx_leaf32;
+  reg u8 b;
+  inline int j;
+
+  s_msg = msg;
+  s_msglen = msglen;
+  s_sig = sig;
+  s_pk = pk;
+  s_scratch = scratch;
+
+  /* Step 1: Read idx from sig[0..IDX_BYTES-1] */
+  sig = s_sig;
+  idx = __bytes_to_ull(sig, IDX_BYTES);
+
+  r = 1;
+  if (idx <=u MT_IDX_MAX) {
+
+    s_idx = idx;
+
+    /* Step 2: toByte(idx, 32) → scratch[0..31] */
+    scratch = s_scratch;
+    __ull_to_bytes(scratch, 32, idx);
+
+    /* Step 3: H_msg(computed_root, r, pk_root, idx_bytes, msg, msglen) → scratch+32 */
+    scratch = s_scratch;
+    dst = scratch;
+    dst += 32;
+    sig = s_sig;
+    src = sig;
+    src += MT_SIG_R_OFF;
+    pk = s_pk;
+    tmp = pk;
+    tmp += MT_PK_ROOT_OFF;
+    scratch = s_scratch;
+    msg = s_msg;
+    msglen = s_msglen;
+    __xmss_H_msg(dst, src, tmp, scratch, msg, msglen);
+
+    /* Step 4: Iterate through D layers using while loop (avoids regalloc pressure from unrolling) */
+    sig_off = MT_SIG_DATA_OFF;
+    s_sig_off = sig_off;
+    layer32 = 0;
+
+    while (layer32 <u D) {
+      s_layer = layer32;
+
+      /* Decompose idx: idx_leaf = idx & ((1<<TREE_HEIGHT)-1); idx >>= TREE_HEIGHT */
+      idx = s_idx;
+      idx_leaf32 = (32u)idx;
+      idx_leaf32 &= (1 << TREE_HEIGHT) - 1;
+      idx >>= TREE_HEIGHT;
+      s_idx = idx;
+      s_idx_leaf = idx_leaf32;
+
+      /* Set ADRS: layer, tree=idx (remaining bits), type=OTS, ots=idx_leaf */
+      adrs = __adrs_zero();
+      layer32 = s_layer;
+      adrs = __adrs_set_layer(adrs, layer32);
+      idx = s_idx;
+      adrs = __adrs_set_tree(adrs, idx);
+      adrs = __adrs_set_type(adrs, 0);
+      idx_leaf32 = s_idx_leaf;
+      adrs = __adrs_set_ots(adrs, idx_leaf32);
+
+      /* wots_pk_from_sig(wots_pk, sig_wots, computed_root, pk_seed, adrs) */
+      scratch = s_scratch;
+      dst = scratch;
+      dst += 96;
+      sig = s_sig;
+      src = sig;
+      sig_off = s_sig_off;
+      src += sig_off;
+      scratch = s_scratch;
+      tmp = scratch;
+      tmp += 32;
+      pk = s_pk;
+      adrs_buf = pk;
+      adrs_buf += MT_PK_SEED_OFF;
+      adrs_rp = adrs;
+      __wots_pk_from_sig(dst, src, tmp, adrs_buf, adrs_rp);
+
+      /* Set ADRS type=LTREE, ltree=idx_leaf */
+      adrs = __adrs_set_type(adrs, 1);
+      idx = s_idx;
+      adrs = __adrs_set_tree(adrs, idx);
+      idx_leaf32 = s_idx_leaf;
+      adrs = __adrs_set_ltree(adrs, idx_leaf32);
+
+      /* Serialize ADRS */
+      adrs_bytes = __adrs_to_bytes(adrs);
+      scratch = s_scratch;
+      for j = 0 to 32 {
+        b = adrs_bytes[j];
+        [:u8 scratch + j] = b;
+      }
+
+      /* ltree(leaf, wots_pk, pub_seed, adrs_buf, adrs) */
+      scratch = s_scratch;
+      dst = scratch;
+      dst += 64;
+      src = scratch;
+      src += 96;
+      pk = s_pk;
+      tmp = pk;
+      tmp += MT_PK_SEED_OFF;
+      scratch = s_scratch;
+      adrs_rp = adrs;
+      __ltree(dst, src, tmp, scratch, adrs_rp);
+
+      /* Set ADRS type=HASH_TREE */
+      adrs = __adrs_set_type(adrs, 2);
+      idx = s_idx;
+      adrs = __adrs_set_tree(adrs, idx);
+
+      /* Serialize ADRS */
+      adrs_bytes = __adrs_to_bytes(adrs);
+      scratch = s_scratch;
+      for j = 0 to 32 {
+        b = adrs_bytes[j];
+        [:u8 scratch + j] = b;
+      }
+
+      /* compute_root(computed_root, leaf, idx_leaf, auth, pub_seed, adrs_buf, adrs) */
+      scratch = s_scratch;
+      dst = scratch;
+      dst += 32;
+      src = scratch;
+      src += 64;
+      sig = s_sig;
+      tmp = sig;
+      sig_off = s_sig_off;
+      sig_off += LEN * N;  /* auth offset within this layer's reduced sig */
+      tmp += sig_off;
+      pk = s_pk;
+      adrs_buf = pk;
+      adrs_buf += MT_PK_SEED_OFF;
+      scratch = s_scratch;
+      idx_leaf32 = s_idx_leaf;
+      adrs_rp = adrs;
+      __compute_root(dst, src, idx_leaf32, tmp, adrs_buf, scratch, adrs_rp);
+
+      /* Advance sig_off to next layer's reduced sig */
+      sig_off = s_sig_off;
+      sig_off += MT_REDUCED_SIG;
+      s_sig_off = sig_off;
+
+      layer32 = s_layer;
+      layer32 += 1;
+    }
+
+    /* Step 5: ct_memcmp(computed_root, pk_root, N) */
+    scratch = s_scratch;
+    src = scratch;
+    src += 32;
+    pk = s_pk;
+    dst = pk;
+    dst += MT_PK_ROOT_OFF;
+    r = __ct_memcmp(src, dst, N);
+  }
+
+  return r;
+}
+
+/* ====================================================================
+ * Part D: __xmssmt_keygen — XMSS-MT key generation
+ *
+ * pk:       output, MT_PK_BYTES
+ * sk:       output, MT_SK_BYTES
+ * mt_state: output, MT_STATE_BYTES
+ * seeds:    input, 3*N bytes: SK_SEED(32) || SK_PRF(32) || PUB_SEED(32)
+ * scratch:  32 + LEN*N + N bytes: [0..31] adrs_buf, [32..] wots_buf
+ *
+ * Returns 0 on success.
+ * ==================================================================== */
+fn __xmssmt_keygen(reg u64 pk, reg u64 sk, reg u64 mt_state,
+                    reg u64 seeds, reg u64 scratch) -> reg u64 {
+  stack u32[8] adrs;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_pk s_sk s_mt s_seeds s_scratch;
+  stack u8[N] root;
+  reg u64 adrs_buf wots_buf r tmp src dst state_ptr;
+  reg u32 oid zero32;
+  reg u8 b;
+  inline int layer j;
+
+  s_pk = pk;
+  s_sk = sk;
+  s_mt = mt_state;
+  s_seeds = seeds;
+  s_scratch = scratch;
+
+  /* Build trees bottom-up, signing each root at the layer above */
+  for layer = 0 to D - 1 {
+    /* Set ADRS: layer=layer, tree=0 */
+    adrs = __adrs_zero();
+    adrs = __adrs_set_layer(adrs, layer);
+
+    /* bds_treehash_init(root, bds[layer], sk_seed, pub_seed, adrs) */
+    /* root output goes to stack root[] temporarily */
+    scratch = s_scratch;
+    tmp = scratch;
+    /* Use wots_buf area (scratch+32) temporarily for root output */
+    tmp += 32 + LEN * N;  /* past wots_buf, in the extra N bytes */
+
+    mt_state = s_mt;
+    state_ptr = mt_state;
+    state_ptr += layer * BDS_STATE_BYTES;
+
+    seeds = s_seeds;
+    src = seeds;
+    src += 2 * N;
+    adrs_buf = s_scratch;
+    wots_buf = s_scratch;
+    wots_buf += 32;
+    adrs_rp = adrs;
+    __bds_treehash_init(tmp, state_ptr, seeds, src, adrs_buf, adrs_rp, wots_buf);
+
+    /* Copy root from scratch+32+LEN*N to stack root[] */
+    tmp = s_scratch;
+    tmp += 32 + LEN * N;
+    for j = 0 to N {
+      b = [:u8 tmp + j];
+      root[j] = b;
+    }
+
+    /* Sign this layer's root at layer+1 */
+    adrs = __adrs_zero();
+    adrs = __adrs_set_layer(adrs, layer + 1);
+    adrs = __adrs_set_type(adrs, 0);
+    zero32 = 0;
+    adrs = __adrs_set_ots(adrs, zero32);
+
+    /* wots_sign(wots_sigs[layer], root, sk_seed, pub_seed, adrs) */
+    mt_state = s_mt;
+    dst = mt_state;
+    dst += MT_BDS_SIZE + layer * MT_WOTS_SIG_SIZE;
+
+    /* Copy root to scratch+32 (wots_sign reads msg from a pointer) */
+    scratch = s_scratch;
+    tmp = scratch;
+    tmp += 32;
+    for j = 0 to N {
+      b = root[j];
+      [:u8 tmp + j] = b;
+    }
+
+    seeds = s_seeds;
+    src = seeds;
+    src += 2 * N;
+    adrs_rp = adrs;
+    __wots_sign(dst, tmp, seeds, src, adrs_rp);
+  }
+
+  /* Top layer: just build the tree */
+  adrs = __adrs_zero();
+  adrs = __adrs_set_layer(adrs, D - 1);
+
+  /* Root output to pk+MT_PK_ROOT_OFF */
+  pk = s_pk;
+  tmp = pk;
+  tmp += MT_PK_ROOT_OFF;
+
+  mt_state = s_mt;
+  state_ptr = mt_state;
+  state_ptr += (D - 1) * BDS_STATE_BYTES;
+
+  seeds = s_seeds;
+  src = seeds;
+  src += 2 * N;
+  adrs_buf = s_scratch;
+  wots_buf = s_scratch;
+  wots_buf += 32;
+  adrs_rp = adrs;
+  __bds_treehash_init(tmp, state_ptr, seeds, src, adrs_buf, adrs_rp, wots_buf);
+
+  /* Initialise "next" BDS states for layers 0..D-2 */
+  for layer = 0 to D - 1 {
+    mt_state = s_mt;
+    state_ptr = mt_state;
+    state_ptr += (D + layer) * BDS_STATE_BYTES;
+    zero32 = 0;
+    __bds_next_leaf_set(state_ptr, zero32);
+    __bds_stack_offset_set(state_ptr, zero32);
+  }
+
+  /* Serialize PK: OID(4) | root(N) | SEED(N) */
+  pk = s_pk;
+  oid = XMSSMT_OID;
+  oid = #BSWAP_32(oid);
+  [:u32 pk] = oid;
+
+  /* root already at pk+MT_PK_ROOT_OFF from treehash_init */
+
+  /* Copy SEED to pk+MT_PK_SEED_OFF */
+  seeds = s_seeds;
+  src = seeds;
+  src += 2 * N;
+  pk = s_pk;
+  dst = pk;
+  dst += MT_PK_SEED_OFF;
+  for j = 0 to N {
+    b = [:u8 src + j];
+    [:u8 dst + j] = b;
+  }
+
+  /* Serialize SK: OID(4) | idx(IDX_BYTES) | SK_SEED(N) | SK_PRF(N) | root(N) | SEED(N) */
+  sk = s_sk;
+  oid = XMSSMT_OID;
+  oid = #BSWAP_32(oid);
+  [:u32 sk] = oid;
+
+  /* idx = 0 */
+  sk = s_sk;
+  tmp = sk;
+  tmp += MT_SK_IDX_OFF;
+  r = 0;
+  __ull_to_bytes(tmp, IDX_BYTES, r);
+
+  /* Copy SK_SEED */
+  seeds = s_seeds;
+  sk = s_sk;
+  dst = sk;
+  dst += MT_SK_SEED_OFF;
+  for j = 0 to N {
+    b = [:u8 seeds + j];
+    [:u8 dst + j] = b;
+  }
+
+  /* Copy SK_PRF */
+  seeds = s_seeds;
+  src = seeds;
+  src += N;
+  sk = s_sk;
+  dst = sk;
+  dst += MT_SK_PRF_OFF;
+  for j = 0 to N {
+    b = [:u8 src + j];
+    [:u8 dst + j] = b;
+  }
+
+  /* Copy root from pk to sk */
+  pk = s_pk;
+  src = pk;
+  src += MT_PK_ROOT_OFF;
+  sk = s_sk;
+  dst = sk;
+  dst += MT_SK_ROOT_OFF;
+  for j = 0 to N {
+    b = [:u8 src + j];
+    [:u8 dst + j] = b;
+  }
+
+  /* Copy SEED */
+  seeds = s_seeds;
+  src = seeds;
+  src += 2 * N;
+  sk = s_sk;
+  dst = sk;
+  dst += MT_SK_PUB_SEED_OFF;
+  for j = 0 to N {
+    b = [:u8 src + j];
+    [:u8 dst + j] = b;
+  }
+
+  ?{}, r = #set0();
+  return r;
+}
+
+/* ====================================================================
+ * Part E: __xmssmt_sign — XMSS-MT signing
+ *
+ * sig:      output, MT_SIG_BYTES
+ * msg:      input, msglen bytes
+ * msglen:   message length
+ * sk:       input/output, MT_SK_BYTES (idx gets incremented)
+ * mt_state: input/output, MT_STATE_BYTES
+ * scratch:  64 + LEN*N + N bytes (same as XMSS sign)
+ *           [0..31]  idx_buf / adrs_buf
+ *           [32..63] m_hash / temp
+ *           [64..]   wots_buf (LEN*N + N)
+ *
+ * Returns 0 on success, 1 on index exhaustion.
+ * ==================================================================== */
+fn __xmssmt_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
+                  reg u64 sk, reg u64 mt_state,
+                  reg u64 scratch) -> reg u64 {
+  stack u32[8] adrs;
+  stack u32[8] ots_adrs;
+  reg ptr u32[8] adrs_rp;
+  stack u64 s_sig s_msg s_msglen s_sk s_mt s_scratch s_idx;
+  stack u64 s_idx_tree;
+  stack u32 s_idx_leaf s_needswap s_updates;
+  reg u64 r tmp src dst idx adrs_buf wots_buf state_ptr;
+  reg u64 idx_tree next_tree;
+  reg u32 idx32 idx_leaf32 zero32 upd_var;
+  reg u32 needswap;
+  reg u8 b comp_u8;
+  inline int layer j k;
+
+  s_sig = sig;
+  s_msg = msg;
+  s_msglen = msglen;
+  s_sk = sk;
+  s_mt = mt_state;
+  s_scratch = scratch;
+
+  /* Step 1: Read idx from sk+MT_SK_IDX_OFF */
+  sk = s_sk;
+  tmp = sk;
+  tmp += MT_SK_IDX_OFF;
+  idx = __bytes_to_ull(tmp, IDX_BYTES);
+
+  r = 1;
+  if (idx <=u MT_IDX_MAX) {
+
+    s_idx = idx;
+
+    /* Step 2: Increment idx in SK */
+    sk = s_sk;
+    tmp = sk;
+    tmp += MT_SK_IDX_OFF;
+    r = idx;
+    r += 1;
+    __ull_to_bytes(tmp, IDX_BYTES, r);
+
+    /* Step 3: toByte(idx, 32) → scratch[0..31] */
+    idx = s_idx;
+    scratch = s_scratch;
+    __ull_to_bytes(scratch, 32, idx);
+
+    /* Step 4: PRF_idx(r, sk_prf, idx_32bytes) → sig+MT_SIG_R_OFF */
+    sig = s_sig;
+    dst = sig;
+    dst += MT_SIG_R_OFF;
+    sk = s_sk;
+    src = sk;
+    src += MT_SK_PRF_OFF;
+    scratch = s_scratch;
+    __xmss_PRF_idx(dst, src, scratch);
+
+    /* Step 5: H_msg(m_hash, r, root, idx_bytes, msg, msglen) → scratch+32 */
+    scratch = s_scratch;
+    dst = scratch;
+    dst += 32;
+    sig = s_sig;
+    src = sig;
+    src += MT_SIG_R_OFF;
+    sk = s_sk;
+    tmp = sk;
+    tmp += MT_SK_ROOT_OFF;
+    scratch = s_scratch;
+    msg = s_msg;
+    msglen = s_msglen;
+    __xmss_H_msg(dst, src, tmp, scratch, msg, msglen);
+
+    /* Step 6: Write idx to sig[0..IDX_BYTES-1] */
+    sig = s_sig;
+    idx = s_idx;
+    __ull_to_bytes(sig, IDX_BYTES, idx);
+
+    /* ---- Build signature: layer 0 ---- */
+    /* Decompose: idx_tree = idx >> TREE_HEIGHT, idx_leaf = idx & mask */
+    idx = s_idx;
+    idx_tree = idx;
+    idx_tree >>= TREE_HEIGHT;
+    idx_leaf32 = (32u)idx;
+    idx_leaf32 &= (1 << TREE_HEIGHT) - 1;
+
+    s_idx_leaf = idx_leaf32;
+
+    /* Set ADRS for WOTS sign at layer 0 */
+    ots_adrs = __adrs_zero();
+    ots_adrs = __adrs_set_layer(ots_adrs, 0);
+    ots_adrs = __adrs_set_tree(ots_adrs, idx_tree);
+    ots_adrs = __adrs_set_type(ots_adrs, 0);
+    idx_leaf32 = s_idx_leaf;
+    ots_adrs = __adrs_set_ots(ots_adrs, idx_leaf32);
+
+    /* wots_sign(sig_ptr, m_hash, sk_seed, pub_seed, adrs) */
+    sig = s_sig;
+    dst = sig;
+    dst += MT_SIG_DATA_OFF;
+    scratch = s_scratch;
+    src = scratch;
+    src += 32;
+    sk = s_sk;
+    tmp = sk;
+    tmp += MT_SK_SEED_OFF;
+    sk = s_sk;
+    wots_buf = sk;
+    wots_buf += MT_SK_PUB_SEED_OFF;
+    adrs_rp = ots_adrs;
+    __wots_sign(dst, src, tmp, wots_buf, adrs_rp);
+
+    /* Copy auth path from bds[0] */
+    mt_state = s_mt;
+    sig = s_sig;
+    for j = 0 to TREE_HEIGHT {
+      src = mt_state;
+      src += BDS_AUTH_OFF + j * N;
+      dst = sig;
+      dst += MT_SIG_DATA_OFF + LEN * N + j * N;
+      for k = 0 to N {
+        b = [:u8 src + k];
+        [:u8 dst + k] = b;
+      }
+    }
+
+    /* ---- Build signature: layers 1..D-1 — use cached WOTS sigs ---- */
+    for layer = 1 to D {
+      /* Copy cached wots_sigs[layer-1] */
+      mt_state = s_mt;
+      src = mt_state;
+      src += MT_BDS_SIZE + (layer - 1) * MT_WOTS_SIG_SIZE;
+      sig = s_sig;
+      dst = sig;
+      dst += MT_SIG_DATA_OFF + layer * MT_REDUCED_SIG;
+      for j = 0 to LEN * N {
+        b = [:u8 src + j];
+        [:u8 dst + j] = b;
+      }
+
+      /* Copy auth from bds[layer] */
+      mt_state = s_mt;
+      sig = s_sig;
+      for j = 0 to TREE_HEIGHT {
+        src = mt_state;
+        src += layer * BDS_STATE_BYTES + BDS_AUTH_OFF + j * N;
+        dst = sig;
+        dst += MT_SIG_DATA_OFF + layer * MT_REDUCED_SIG + LEN * N + j * N;
+        for k = 0 to N {
+          b = [:u8 src + k];
+          [:u8 dst + k] = b;
+        }
+      }
+    }
+
+    /* ---- Update BDS states ---- */
+    upd_var = (TREE_HEIGHT - BDS_K) / 2;
+    s_updates = upd_var;
+
+    /* Mandatory: update NEXT_0 (layer 0 next tree = bds[D]) */
+    idx = s_idx;
+    idx_tree = idx;
+    idx_tree >>= TREE_HEIGHT;
+    idx_leaf32 = (32u)idx;
+    idx_leaf32 &= (1 << TREE_HEIGHT) - 1;
+
+    adrs = __adrs_zero();
+    adrs = __adrs_set_layer(adrs, 0);
+    next_tree = idx_tree;
+    next_tree += 1;
+    adrs = __adrs_set_tree(adrs, next_tree);
+
+    /* Check that the next tree's address is within bounds */
+    /* (1 + idx_tree) * (1 << TREE_HEIGHT) + idx_leaf < (1 << FULL_H) */
+    tmp = next_tree;
+    tmp <<= TREE_HEIGHT;
+    r = (64u)idx_leaf32;
+    tmp += r;
+    if (tmp <u 1 << FULL_H) {
+      mt_state = s_mt;
+      state_ptr = mt_state;
+      state_ptr += D * BDS_STATE_BYTES;
+      sk = s_sk;
+      src = sk;
+      src += MT_SK_SEED_OFF;
+      sk = s_sk;
+      dst = sk;
+      dst += MT_SK_PUB_SEED_OFF;
+      adrs_buf = s_scratch;
+      wots_buf = s_scratch;
+      wots_buf += 64;
+      adrs_rp = adrs;
+      r = __bds_state_update(state_ptr, src, dst, adrs_buf, adrs_rp, wots_buf);
+    }
+
+    /* Per-layer state updates */
+    /* needswap tracks the highest layer where a swap occurred */
+    needswap = 0;  /* We use 0 = no swap; layer+1 = swap at layer. Avoids signed ints. */
+    /* Actually, the C code uses needswap_upto = -1 initially, and checks
+     * i == needswap_upto + 1. We map this as:
+     * needswap = 0 means "no swap yet" (maps to -1 + 1 = 0, so layer 0 matches)
+     * But actually the logic is: if layer == needswap_upto + 1, do bds_round.
+     * With needswap_upto = -1 initially, layer 0 == 0, so bds_round is called at layer 0.
+     * After swap at layer i, needswap_upto = i, so bds_round at layer i+1.
+     *
+     * We track: needswap = needswap_upto + 1 (so initially 0, means bds_round at layer 0).
+     */
+    s_needswap = needswap;
+
+    for layer = 0 to D {
+      /* Check boundary: ((idx+1) & ((1 << ((layer+1)*TREE_HEIGHT)) - 1)) == 0 */
+      idx = s_idx;
+      tmp = idx;
+      tmp += 1;
+
+      /* For layer < D, compute mask = (1 << ((layer+1)*TREE_HEIGHT)) - 1 */
+      /* For d=2: layer=0 → mask=(1<<10)-1=1023; layer=1 → mask=(1<<20)-1=1048575 */
+      r = 1;
+      r <<= (layer + 1) * TREE_HEIGHT;
+      r -= 1;
+
+      tmp &= r;
+
+      if (tmp != 0) {
+        /* NOT at boundary: advance BDS state */
+        idx = s_idx;
+
+        /* For layer i: idx_leaf = (idx >> (TREE_HEIGHT*layer)) & mask */
+        /* idx_tree = idx >> (TREE_HEIGHT*(layer+1)) */
+        r = idx;
+        /* shift right by layer*TREE_HEIGHT via constant */
+        for j = 0 to layer * TREE_HEIGHT { r >>= 1; }
+        idx_leaf32 = (32u)r;
+        idx_leaf32 &= (1 << TREE_HEIGHT) - 1;
+
+        idx_tree = idx;
+        for j = 0 to (layer + 1) * TREE_HEIGHT { idx_tree >>= 1; }
+
+        s_idx_tree = idx_tree;
+        s_idx_leaf = idx_leaf32;
+
+        adrs = __adrs_zero();
+        adrs = __adrs_set_layer(adrs, layer);
+        adrs = __adrs_set_tree(adrs, idx_tree);
+
+        /* if (layer == needswap_upto + 1): bds_round */
+        needswap = s_needswap;
+        if (needswap == layer) {
+          mt_state = s_mt;
+          state_ptr = mt_state;
+          state_ptr += layer * BDS_STATE_BYTES;
+          idx_leaf32 = s_idx_leaf;
+          sk = s_sk;
+          src = sk;
+          src += MT_SK_SEED_OFF;
+          sk = s_sk;
+          dst = sk;
+          dst += MT_SK_PUB_SEED_OFF;
+          adrs_buf = s_scratch;
+          wots_buf = s_scratch;
+          wots_buf += 64;
+          adrs_rp = adrs;
+          __bds_round(state_ptr, idx_leaf32, src, dst, adrs_buf, adrs_rp, wots_buf);
+        }
+
+        /* bds_treehash_update */
+        mt_state = s_mt;
+        state_ptr = mt_state;
+        state_ptr += layer * BDS_STATE_BYTES;
+        upd_var = s_updates;
+        sk = s_sk;
+        src = sk;
+        src += MT_SK_SEED_OFF;
+        sk = s_sk;
+        dst = sk;
+        dst += MT_SK_PUB_SEED_OFF;
+        adrs_buf = s_scratch;
+        wots_buf = s_scratch;
+        wots_buf += 64;
+        adrs_rp = adrs;
+        __bds_treehash_update(state_ptr, upd_var, src, dst, adrs_buf, adrs_rp, wots_buf);
+
+        /* Update "next" tree for this layer (if layer > 0 and updates > 0) */
+        if (layer > 0) {
+          upd_var = s_updates;
+          if (upd_var >u 0) {
+            idx_tree = s_idx_tree;
+            idx_leaf32 = s_idx_leaf;
+
+            /* Check bounds: (1 + idx_tree) * (1<<TH) + idx_leaf < (1<<(FULL_H - TH*layer)) */
+            next_tree = idx_tree;
+            next_tree += 1;
+            tmp = next_tree;
+            tmp <<= TREE_HEIGHT;
+            r = (64u)idx_leaf32;
+            tmp += r;
+
+            r = 1;
+            for j = 0 to FULL_H - TREE_HEIGHT * layer { r <<= 1; }
+
+            if (tmp <u r) {
+              mt_state = s_mt;
+              state_ptr = mt_state;
+              state_ptr += (D + layer) * BDS_STATE_BYTES;
+
+              /* Check if next tree is still building */
+              zero32 = __bds_next_leaf_get(state_ptr);
+              if (zero32 <u 1 << TREE_HEIGHT) {
+                adrs = __adrs_zero();
+                adrs = __adrs_set_layer(adrs, layer);
+                adrs = __adrs_set_tree(adrs, next_tree);
+
+                sk = s_sk;
+                src = sk;
+                src += MT_SK_SEED_OFF;
+                sk = s_sk;
+                dst = sk;
+                dst += MT_SK_PUB_SEED_OFF;
+                adrs_buf = s_scratch;
+                wots_buf = s_scratch;
+                wots_buf += 64;
+                adrs_rp = adrs;
+                r = __bds_state_update(state_ptr, src, dst, adrs_buf, adrs_rp, wots_buf);
+
+                upd_var = s_updates;
+                upd_var -= 1;
+                s_updates = upd_var;
+              }
+            }
+          }
+        }
+      } else {
+        /* AT tree boundary (and not last signature) */
+        idx = s_idx;
+        if (idx <u MT_IDX_MAX) {
+          /* deep_state_swap(bds[D+layer], bds[layer]) */
+          /* Swap BDS_STATE_BYTES between the two state buffers */
+          /* We swap byte-by-byte using scratch as temp */
+          mt_state = s_mt;
+          src = mt_state;
+          src += (D + layer) * BDS_STATE_BYTES;
+          dst = mt_state;
+          dst += layer * BDS_STATE_BYTES;
+
+          /* Byte-by-byte swap using a stack temporary register */
+          tmp = 0;
+          while (tmp <u BDS_STATE_BYTES) {
+            r = src;
+            r += tmp;
+            b = [:u8 r];            /* b = next[off] */
+
+            wots_buf = dst;
+            wots_buf += tmp;
+            comp_u8 = [:u8 wots_buf]; /* comp_u8 = curr[off] */
+
+            [:u8 r] = comp_u8;      /* next[off] = curr[off] */
+            [:u8 wots_buf] = b;     /* curr[off] = next[off] */
+
+            tmp += 1;
+          }
+
+          /* Sign the swapped-in tree's root (stack[0]) at layer+1 */
+          ots_adrs = __adrs_zero();
+          ots_adrs = __adrs_set_layer(ots_adrs, layer + 1);
+
+          /* tree = (idx+1) >> ((layer+2)*TREE_HEIGHT) */
+          idx = s_idx;
+          idx_tree = idx;
+          idx_tree += 1;
+          for j = 0 to (layer + 2) * TREE_HEIGHT { idx_tree >>= 1; }
+          ots_adrs = __adrs_set_tree(ots_adrs, idx_tree);
+          ots_adrs = __adrs_set_type(ots_adrs, 0);
+
+          /* ots = ((idx >> ((layer+1)*TREE_HEIGHT)) + 1) & mask */
+          idx = s_idx;
+          r = idx;
+          for j = 0 to (layer + 1) * TREE_HEIGHT { r >>= 1; }
+          r += 1;
+          idx32 = (32u)r;
+          idx32 &= (1 << TREE_HEIGHT) - 1;
+          ots_adrs = __adrs_set_ots(ots_adrs, idx32);
+
+          /* wots_sign(wots_sigs[layer], bds[layer].stack[0], sk_seed, pub_seed, adrs) */
+          mt_state = s_mt;
+          dst = mt_state;
+          dst += MT_BDS_SIZE + layer * MT_WOTS_SIG_SIZE;
+
+          src = mt_state;
+          src += layer * BDS_STATE_BYTES + BDS_STACK_OFF;
+
+          sk = s_sk;
+          tmp = sk;
+          tmp += MT_SK_SEED_OFF;
+          sk = s_sk;
+          wots_buf = sk;
+          wots_buf += MT_SK_PUB_SEED_OFF;
+          adrs_rp = ots_adrs;
+          __wots_sign(dst, src, tmp, wots_buf, adrs_rp);
+
+          /* Reset the swapped-in "next" state */
+          mt_state = s_mt;
+          state_ptr = mt_state;
+          state_ptr += (D + layer) * BDS_STATE_BYTES;
+          zero32 = 0;
+          __bds_stack_offset_set(state_ptr, zero32);
+          __bds_next_leaf_set(state_ptr, zero32);
+
+          upd_var = s_updates;
+          if (upd_var >u 0) {
+            upd_var -= 1;
+            s_updates = upd_var;
+          }
+
+          /* needswap_upto = layer → needswap = layer + 1 */
+          needswap = layer + 1;
+          s_needswap = needswap;
+
+          /* Mark all treehash instances as completed for swapped state */
+          mt_state = s_mt;
+          state_ptr = mt_state;
+          state_ptr += layer * BDS_STATE_BYTES;
+          for j = 0 to TREE_HEIGHT - BDS_K {
+            comp_u8 = 1;
+            __th_completed_set_rt(state_ptr, (64u)j, comp_u8);
+          }
+        }
+      }
+    }
+
+    ?{}, r = #set0();
+  }
+
+  return r;
+}

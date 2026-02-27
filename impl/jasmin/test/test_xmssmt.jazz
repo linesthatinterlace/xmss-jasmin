@@ -1,0 +1,52 @@
+/* test_xmssmt.jazz — thin export wrappers for XMSS-MT keygen, sign, verify
+ *
+ * Params: XMSSMT-SHA2_20/2_256
+ */
+
+param int N          = 32;
+param int W          = 16;
+param int LOG2_W     = 4;
+param int LEN1       = 64;
+param int LEN2       = 3;
+param int LEN        = 67;
+param int TREE_HEIGHT = 10;
+param int BDS_K      = 2;
+
+/* XMSS-MT specific */
+param int D          = 2;
+param int FULL_H     = 20;
+param int IDX_BYTES  = 3;
+
+require "../src/utils.jinc"
+require "../src/address.jinc"
+require "../src/hash/sha256_n32.jinc"
+require "../src/wots.jinc"
+require "../src/ltree.jinc"
+require "../src/treehash.jinc"
+require "../src/bds.jinc"
+require "../src/xmssmt.jinc"
+
+export fn test_xmssmt_keygen(reg u64 pk, reg u64 sk, reg u64 mt_state,
+                              reg u64 seeds, reg u64 scratch) -> reg u64 {
+  reg u64 r;
+  _ = #init_msf();
+  r = __xmssmt_keygen(pk, sk, mt_state, seeds, scratch);
+  return r;
+}
+
+export fn test_xmssmt_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
+                            reg u64 sk, reg u64 mt_state,
+                            reg u64 scratch) -> reg u64 {
+  reg u64 r;
+  _ = #init_msf();
+  r = __xmssmt_sign(sig, msg, msglen, sk, mt_state, scratch);
+  return r;
+}
+
+export fn test_xmssmt_verify(reg u64 msg, reg u64 msglen, reg u64 sig,
+                              reg u64 pk, reg u64 scratch) -> reg u64 {
+  reg u64 r;
+  _ = #init_msf();
+  r = __xmssmt_verify(msg, msglen, sig, pk, scratch);
+  return r;
+}

@@ -2,7 +2,7 @@
 
 Context for Claude Code when working on the Jasmin implementation of XMSS/XMSS-MT. All paths below are relative to `impl/jasmin/`.
 
-Status: **XMSS single-tree complete** (keygen, sign, verify — all tested). XMSS-MT not yet started.
+Status: **XMSS single-tree and XMSS-MT complete** (keygen, sign, verify — all tested). XMSSMT-SHA2_20/2_256 tested with boundary crossing (1024+ signatures).
 
 ## What Jasmin is
 
@@ -74,7 +74,7 @@ This analysis is a prerequisite to any work on extending or contributing to Jasm
 ```bash
 cd impl/jasmin
 make              # compile all tests
-make test         # build + run all 7 test suites
+make test         # build + run all 8 test suites
 make clean        # remove .s and binaries
 make test/test_X  # build a single test (e.g. test/test_xmss)
 ```
@@ -97,8 +97,9 @@ impl/jasmin/
     wots.jinc           WOTS+ gen_pk, sign, pk_from_sig — DONE
     ltree.jinc          L-tree hash — DONE
     treehash.jinc       treehash and compute_root — DONE
-    bds.jinc            BDS state management — DONE
-    xmss.jinc           SK/PK/Sig layout constants — DONE
+    bds.jinc            BDS state management (incl. bds_state_update for XMSS-MT) — DONE
+    xmss.jinc           XMSS keygen/sign/verify — DONE
+    xmssmt.jinc         XMSS-MT keygen/sign/verify — DONE
   test/
     test_*.jazz         Jasmin test wrappers (export fn for C harness)
     test_*.c            C test harnesses
@@ -158,6 +159,7 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Front-load understanding of the problem domain before writing.** Investing in reading the reference implementation, all existing code, and test patterns before writing a single line meant structural correctness on the first draft. Mechanical errors are cheaper to fix than architectural ones.
 - **Characterise the failure pattern before diving into root cause.** A small diagnostic (call 3 times, compare pairs) immediately revealed: root non-deterministic, state always correct, calls 1 and 3 match but 2 differs. This ruled out algorithmic errors and pointed directly at uninitialized memory — saving hours of fruitless code review.
 - **Architecture that composes cleanly pays off at integration time.** The xmss.jinc session assembled keygen/sign/verify from existing building blocks with zero algorithmic bugs — all 6 tests passed on the first run. This was a direct result of the scratch-buffer convention, consistent function signatures, and testing each layer before building on it.
+- **Reading the reference implementation thoroughly before writing scales to complex functions.** XMSS-MT sign has boundary-crossing swap logic, `needswap_upto` tracking, per-layer BDS updates, and cached WOTS signature management. Understanding the C implementation's control flow *completely* before writing Jasmin meant the sign function was algorithmically correct on first run — all 7 tests passed including 1024-signature boundary crossing.
 
 ### Even Better If
 - **Think in x86 instructions before writing Jasmin.** Jasmin compiles to assembly — every construct maps to real instructions. Before writing a line, ask: "What instruction does this become? Does that instruction exist?" This prevents most linearization/asmgen errors.
@@ -170,6 +172,8 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Use runtime tools before code review for runtime bugs.** Valgrind found the uninitialized-stack-read in seconds; manual code review of 1100 lines of register-spill-heavy Jasmin could not. When a bug manifests at runtime (wrong output, non-determinism, crashes), reach for `valgrind`, `gdb`, or targeted printfs *first*. Reserve code review for compile-time errors and design issues where tools can't help.
 - **Consult your own notes before debugging.** When hitting a compiler error, check MEMORY.md and SKILL.md *first* — don't start reading source code and exploring. Three of four compile errors in the xmss.jinc session were already-documented patterns (no early returns, u64 for stack indexing, require chain). Reading notes for 10 seconds beats a debug chain.
 - **Discover all project documents at session start.** Missing `blueprint.md` meant missing the full implementation order, phase gates, and cross-implementation verification requirements. At the start of a session, glob for `*.md` in the working directory — don't assume CLAUDE.md is the only guide.
+- **Read each warning individually, not by category.** "Dead variable warning" does not mean "the usual `#set0()` pattern." Read the *line number*. Two warnings in XMSS-MT were genuine dead stores (an unused spill and an overwritten assignment), not the benign `#set0()` pattern. Pattern-matching on warning type instead of reading the specific instance is how real issues get shipped.
+- **Compile each function before writing the next.** Writing verify + keygen + sign in one pass before compiling meant the verify register-pressure bug (inline `for` unroll) and the sign register-pressure bug (`updates` live across SHA-256) were tangled together. Compiling verify alone first would have isolated and fixed it in seconds.
 
 ## What's next
 
@@ -184,10 +188,14 @@ See `blueprint.md` for the full implementation plan including design decisions a
 - [ ] **CI integration**: Add a Jasmin job to `.github/workflows/ci.yml` that installs `jasminc` and runs `make test`. Currently CI only covers the C implementation.
 - [ ] **Code review**: Full review of all Jasmin code once Phase 1 is complete.
 
-### Phase 2 (XMSS-MT)
+### Phase 2 completion (XMSS-MT) — DONE
 
-- [ ] **`src/xmssmt.jinc`**: XMSS-MT keygen, sign, verify with hypertree structure. See blueprint §6.8.
-- [ ] **`__bds_state_update`** in `bds.jinc`: Used by XMSS-MT only (currently stubbed). See blueprint §6.6.
+- [x] **`src/xmssmt.jinc`**: XMSS-MT keygen, sign, verify with hypertree structure.
+- [x] **`__bds_state_update`** in `bds.jinc`: Incremental tree building for XMSS-MT.
+- [x] **Test harness**: 7 tests including 1024-signature boundary crossing.
+- [ ] **KAT cross-validation**: Jasmin XMSS-MT output must match C KAT fingerprints.
+- [ ] **Cross-implementation verification**: C sign → Jasmin verify, Jasmin sign → C verify.
+- [ ] **Additional XMSS-MT parameter sets**: d=4, d=8 `.jazz` files.
 
 ### Phase 3 (additional hash backends)
 

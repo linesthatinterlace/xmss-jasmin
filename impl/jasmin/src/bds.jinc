@@ -1103,3 +1103,287 @@ fn __bds_round(reg u64 state, reg u32 leaf_idx, reg u64 sk_seed,
     }
   }
 }
+
+/* ====================================================================
+ * Part H: __bds_state_update — Incrementally build one leaf of a tree
+ *
+ * Used by XMSS-MT to pre-compute the "next" tree at each layer.
+ * Each call generates one leaf, pushes it onto the BDS stack, and
+ * merges while top two entries have equal height — capturing auth,
+ * treehash, and retain nodes along the way.
+ *
+ * state:     BDS state buffer (next_leaf tracks progress)
+ * sk_seed, seed, adrs_buf, adrs_rp, wots_buf: as usual
+ *
+ * Returns 0 on success, 1 if tree already complete (next_leaf >= 2^H).
+ * ==================================================================== */
+fn __bds_state_update(reg u64 state, reg u64 sk_seed, reg u64 seed,
+                      reg u64 adrs_buf, reg ptr u32[8] adrs_rp,
+                      reg u64 wots_buf) -> reg u64 {
+  stack u32[8] adrs;
+  stack u8[32] adrs_bytes;
+
+  stack u64 s_state s_sk s_seed s_adrs_buf s_wots;
+  stack u32 s_idx;
+
+  reg u64 ret stkoff dst tmp tmp2 nodeh64;
+  reg u64 h_out h_seed h_adrs h_left h_right;
+  reg u32 idx32 nodeh stkoff32 i_shifted th_h0;
+  reg u8 b comp slvl;
+  reg ptr u32[8] adrs_p;
+  inline int j;
+
+  for j = 0 to 8 { adrs[j] = adrs_rp[j]; }
+  s_state = state;
+  s_sk = sk_seed;
+  s_seed = seed;
+  s_adrs_buf = adrs_buf;
+  s_wots = wots_buf;
+
+  /* Read next_leaf; if >= 2^TREE_HEIGHT, tree is complete */
+  idx32 = __bds_next_leaf_get(state);
+
+  ret = 1;
+  if (idx32 <u 1 << TREE_HEIGHT) {
+    s_idx = idx32;
+
+    /* Generate leaf at index idx32 into wots_buf + LEN*N (past scratch),
+     * then push onto BDS stack. */
+    wots_buf = s_wots;
+    tmp = wots_buf;
+    tmp += LEN * N;
+
+    sk_seed = s_sk;
+    seed = s_seed;
+    adrs_buf = s_adrs_buf;
+    adrs_p = adrs;
+    wots_buf = s_wots;
+    __gen_leaf(tmp, sk_seed, seed, idx32, adrs_buf, adrs_p, wots_buf);
+
+    /* Copy leaf from wots_buf + LEN*N to stack[stack_offset] */
+    state = s_state;
+    stkoff32 = __bds_stack_offset_get(state);
+    stkoff = (64u)stkoff32;
+    dst = __bds_stack_node_ptr(state, stkoff);
+
+    tmp = s_wots;
+    tmp += LEN * N;
+    for j = 0 to N {
+      b = [:u8 tmp + j];
+      [:u8 dst + j] = b;
+    }
+
+    /* stack_levels[stack_offset] = 0 */
+    state = s_state;
+    stkoff32 = __bds_stack_offset_get(state);
+    stkoff = (64u)stkoff32;
+    b = 0;
+    __bds_stack_level_set(state, stkoff, b);
+
+    /* stack_offset++ */
+    stkoff32 += 1;
+    __bds_stack_offset_set(state, stkoff32);
+
+    /* Special case: capture treehash[0] starting node at idx=3 */
+    idx32 = s_idx;
+    if (idx32 == 3) {
+      if (TREE_HEIGHT >s BDS_K) {
+        state = s_state;
+        stkoff32 = __bds_stack_offset_get(state);
+        stkoff = (64u)stkoff32;
+        stkoff -= 1;
+        tmp = __bds_stack_node_ptr(state, stkoff);
+        dst = __th_node_ptr_rt(state, (64u)0);
+        for j = 0 to N {
+          b = [:u8 tmp + j];
+          [:u8 dst + j] = b;
+        }
+      }
+    }
+
+    /* Merge while top two stack entries have equal height */
+    while {
+      state = s_state;
+      comp = 0;
+      stkoff32 = __bds_stack_offset_get(state);
+      if (stkoff32 >=u 2) {
+        stkoff = (64u)stkoff32;
+        stkoff -= 1;
+        slvl = __bds_stack_level_get(state, stkoff);
+        stkoff -= 1;
+        b = __bds_stack_level_get(state, stkoff);
+        if (slvl == b) { comp = 1; }
+      }
+    } (comp == 1) {
+      /* nodeh = height of entries being merged */
+      stkoff32 = __bds_stack_offset_get(state);
+      stkoff = (64u)stkoff32;
+      stkoff -= 2;
+      b = __bds_stack_level_get(state, stkoff);
+      nodeh = (32u)b;
+      nodeh64 = (64u)nodeh;
+
+      /* Compute i_shifted = idx >> nodeh */
+      idx32 = s_idx;
+      i_shifted = idx32;
+      th_h0 = nodeh;
+      while (th_h0 >u 0) {
+        i_shifted >>= 1;
+        th_h0 -= 1;
+      }
+
+      state = s_state;
+
+      /* Auth path: (idx >> nodeh) == 1 */
+      if (i_shifted == 1) {
+        stkoff32 = __bds_stack_offset_get(state);
+        stkoff = (64u)stkoff32;
+        stkoff -= 1;
+        tmp = __bds_stack_node_ptr(state, stkoff);
+        dst = __bds_auth_ptr_rt(state, nodeh64);
+        for j = 0 to N {
+          b = [:u8 tmp + j];
+          [:u8 dst + j] = b;
+        }
+      }
+
+      /* Treehash starting node: nodeh < H-K && (idx >> nodeh) == 3 */
+      if (i_shifted == 3) {
+        if (nodeh <u TREE_HEIGHT - BDS_K) {
+          state = s_state;
+          stkoff32 = __bds_stack_offset_get(state);
+          stkoff = (64u)stkoff32;
+          stkoff -= 1;
+          tmp = __bds_stack_node_ptr(state, stkoff);
+          dst = __th_node_ptr_rt(state, nodeh64);
+          for j = 0 to N {
+            b = [:u8 tmp + j];
+            [:u8 dst + j] = b;
+          }
+        }
+      }
+
+      /* Retain node: nodeh >= H-K */
+      if (nodeh >=u TREE_HEIGHT - BDS_K) {
+        /* off = (1 << (H-1-nodeh)) + nodeh - H */
+        tmp = 1;
+        th_h0 = TREE_HEIGHT - 1;
+        th_h0 -= nodeh;
+        while (th_h0 >u 0) {
+          tmp <<= 1;
+          th_h0 -= 1;
+        }
+        tmp += nodeh64;
+        tmp -= TREE_HEIGHT;
+
+        tmp2 = (64u)i_shifted;
+        tmp2 -= 3;
+        tmp2 >>= 1;
+        tmp += tmp2;  /* slot = off + row */
+
+        state = s_state;
+        stkoff32 = __bds_stack_offset_get(state);
+        stkoff = (64u)stkoff32;
+        stkoff -= 1;
+        dst = __bds_retain_ptr(state, tmp);
+        tmp = __bds_stack_node_ptr(state, stkoff);
+        for j = 0 to N {
+          b = [:u8 tmp + j];
+          [:u8 dst + j] = b;
+        }
+      }
+
+      /* Merge: H(left=stack[stkoff-2], right=stack[stkoff-1]) → stack[stkoff-2] */
+      adrs = __adrs_set_type(adrs, 2);
+      state = s_state;
+      stkoff32 = __bds_stack_offset_get(state);
+      stkoff = (64u)stkoff32;
+      stkoff -= 2;
+      b = __bds_stack_level_get(state, stkoff);
+      nodeh = (32u)b;
+      adrs = __adrs_set_tree_height(adrs, nodeh);
+
+      /* tree_index = idx >> (nodeh+1) via constant-shift loop */
+      idx32 = s_idx;
+      th_h0 = nodeh;
+      th_h0 += 1;
+      i_shifted = idx32;
+      while (th_h0 >u 0) {
+        i_shifted >>= 1;
+        th_h0 -= 1;
+      }
+      adrs = __adrs_set_tree_index(adrs, i_shifted);
+
+      adrs_bytes = __adrs_to_bytes(adrs);
+      adrs_buf = s_adrs_buf;
+      for j = 0 to 32 { b = adrs_bytes[j]; [:u8 adrs_buf + j] = b; }
+
+      /* Copy left (stack[stkoff-2]) and right (stack[stkoff-1]) to wots_buf for H */
+      state = s_state;
+      stkoff32 = __bds_stack_offset_get(state);
+      stkoff = (64u)stkoff32;
+      stkoff -= 2;
+      tmp = __bds_stack_node_ptr(state, stkoff);
+      wots_buf = s_wots;
+      for j = 0 to N {
+        b = [:u8 tmp + j];
+        [:u8 wots_buf + j] = b;
+      }
+
+      state = s_state;
+      stkoff32 = __bds_stack_offset_get(state);
+      stkoff = (64u)stkoff32;
+      stkoff -= 1;
+      tmp = __bds_stack_node_ptr(state, stkoff);
+      wots_buf = s_wots;
+      tmp2 = wots_buf;
+      tmp2 += N;
+      for j = 0 to N {
+        b = [:u8 tmp + j];
+        [:u8 tmp2 + j] = b;
+      }
+
+      /* H(out, seed, adrs_buf, left, right) */
+      h_out = s_wots;
+      h_left = s_wots;
+      h_right = s_wots;
+      h_right += N;
+      h_seed = s_seed;
+      h_adrs = s_adrs_buf;
+      __xmss_H(h_out, h_seed, h_adrs, h_left, h_right);
+
+      /* Copy result back to stack[stkoff-2] */
+      state = s_state;
+      stkoff32 = __bds_stack_offset_get(state);
+      stkoff = (64u)stkoff32;
+      stkoff -= 2;
+      dst = __bds_stack_node_ptr(state, stkoff);
+      wots_buf = s_wots;
+      for j = 0 to N {
+        b = [:u8 wots_buf + j];
+        [:u8 dst + j] = b;
+      }
+
+      /* Update: stack_levels[stkoff-2]++, stack_offset-- */
+      state = s_state;
+      stkoff32 = __bds_stack_offset_get(state);
+      stkoff = (64u)stkoff32;
+      stkoff -= 2;
+      b = __bds_stack_level_get(state, stkoff);
+      b += 1;
+      __bds_stack_level_set(state, stkoff, b);
+      stkoff32 -= 1;
+      __bds_stack_offset_set(state, stkoff32);
+    }
+
+    /* Increment next_leaf */
+    state = s_state;
+    idx32 = s_idx;
+    idx32 += 1;
+    __bds_next_leaf_set(state, idx32);
+
+    ?{}, ret = #set0();
+  }
+
+  return ret;
+}

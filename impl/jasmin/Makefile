@@ -10,7 +10,8 @@ ALL_JINC := $(wildcard src/*.jinc src/**/*.jinc)
 
 # Tests with both .jazz and .c (i.e. buildable)
 TESTS := test/test_address test/test_utils test/test_sha256 \
-         test/test_wots test/test_ltree test/test_bds test/test_xmss
+         test/test_wots test/test_ltree test/test_bds test/test_xmss \
+         test/test_xmssmt
 
 ASM := $(addsuffix .s,$(TESTS))
 
