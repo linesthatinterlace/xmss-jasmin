@@ -195,6 +195,8 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Characterise the failure pattern before diving into root cause.** A small diagnostic (call 3 times, compare pairs) immediately revealed: root non-deterministic, state always correct, calls 1 and 3 match but 2 differs. This ruled out algorithmic errors and pointed directly at uninitialized memory — saving hours of fruitless code review.
 - **Architecture that composes cleanly pays off at integration time.** The xmss.jinc session assembled keygen/sign/verify from existing building blocks with zero algorithmic bugs — all 6 tests passed on the first run. This was a direct result of the scratch-buffer convention, consistent function signatures, and testing each layer before building on it.
 - **Reading the reference implementation thoroughly before writing scales to complex functions.** XMSS-MT sign has boundary-crossing swap logic, `needswap_upto` tracking, per-layer BDS updates, and cached WOTS signature management. Understanding the C implementation's control flow *completely* before writing Jasmin meant the sign function was algorithmically correct on first run — all 7 tests passed including 1024-signature boundary crossing.
+- **Separating "what varies" from "what doesn't" pays off at scale.** The entire production API (4 parameter sets, 12 export functions) was created by changing only `param int` values in thin `.jazz` wrappers — zero `.jinc` changes. The same principle applied to C test infrastructure: parameterized headers meant each new parameter set was ~15 lines of macro definitions. Front-loading the right abstraction boundary (OID in `.jazz`, not `.jinc`) made the multi-parameter-set expansion trivial.
+- **Parallelise independent work to shorten wall time.** Compiling h=16 and h=20 `.jazz` files in background while running CT checks on already-compiled files meant no idle waiting. Identify which steps are independent and run them concurrently.
 
 ### Even Better If
 - **Think in x86 instructions before writing Jasmin.** Jasmin compiles to assembly — every construct maps to real instructions. Before writing a line, ask: "What instruction does this become? Does that instruction exist?" This prevents most linearization/asmgen errors.
@@ -209,6 +211,7 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Discover all project documents at session start.** Missing `blueprint.md` meant missing the full implementation order, phase gates, and cross-implementation verification requirements. At the start of a session, glob for `*.md` in the working directory — don't assume CLAUDE.md is the only guide.
 - **Read each warning individually, not by category.** "Dead variable warning" does not mean "the usual `#set0()` pattern." Read the *line number*. Two warnings in XMSS-MT were genuine dead stores (an unused spill and an overwritten assignment), not the benign `#set0()` pattern. Pattern-matching on warning type instead of reading the specific instance is how real issues get shipped.
 - **Compile each function before writing the next.** Writing verify + keygen + sign in one pass before compiling meant the verify register-pressure bug (inline `for` unroll) and the sign register-pressure bug (`updates` live across SHA-256) were tangled together. Compiling verify alone first would have isolated and fixed it in seconds.
+- **Surface runtime cost early when adding test targets.** h=16 keygen takes ~40s (×2 for determinism), h=20 takes ~8min (×2). These costs should be estimated and communicated *before* wiring tests into `make test`, not discovered when the user watches a hanging build. Split fast/slow targets from the start; don't assume all parameter sets have similar runtime.
 
 ## What's next
 
@@ -218,8 +221,8 @@ See `blueprint.md` for the full implementation plan including design decisions a
 
 - [ ] **KAT cross-validation** (blueprint item 12): Jasmin output must match C KAT fingerprints from `test_xmss_kat`. Requires building a Jasmin `.jazz` that produces the same output format as the C KAT generator.
 - [ ] **Cross-implementation verification** (blueprint §10): C sign → Jasmin verify, Jasmin sign → C verify, using identical seeds. Currently we only test Jasmin→Jasmin roundtrips.
-- [ ] **CT check** (blueprint item 13): Run `jasminc -CT` on all `.jazz` files. Any violation is a blocker.
-- [ ] **Additional parameter sets** (blueprint item 14): h=16 and h=20 `.jazz` files, reusing all `.jinc` unchanged.
+- [x] **CT check** (blueprint item 13): All 13 `.jazz` files pass `jasmin-ct` (9 unit + 4 API).
+- [x] **Additional parameter sets** (blueprint item 14): h=10, h=16, h=20 production `.jazz` files in `api/`, plus C header and parameterized test infrastructure. h=16 and h=20 runtime-tested via `make test-api-slow`.
 - [ ] **CI integration**: Add a Jasmin job to `.github/workflows/ci.yml` that installs `jasminc` and runs `make test`. Currently CI only covers the C implementation.
 - [ ] **Code review**: Full review of all Jasmin code once Phase 1 is complete.
 
@@ -230,7 +233,8 @@ See `blueprint.md` for the full implementation plan including design decisions a
 - [x] **Test harness**: 7 tests including 1024-signature boundary crossing.
 - [ ] **KAT cross-validation**: Jasmin XMSS-MT output must match C KAT fingerprints.
 - [ ] **Cross-implementation verification**: C sign → Jasmin verify, Jasmin sign → C verify.
-- [ ] **Additional XMSS-MT parameter sets**: d=4, d=8 `.jazz` files.
+- [x] **XMSSMT-SHA2_20/2_256 production API**: `api/xmssmt_sha2_20_2_256.jazz` with libjade naming, CT-checked, tested with boundary crossing.
+- [ ] **Additional XMSS-MT parameter sets**: d=4, d=8 `.jazz` files (need to verify BDS_K constraints with TREE_HEIGHT=5).
 
 ### Phase 3 (additional hash backends)
 
