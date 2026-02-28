@@ -5,3 +5,4 @@
 test/test_*
 !test/test_*.jazz
 !test/test_*.c
+!test/test_*.h

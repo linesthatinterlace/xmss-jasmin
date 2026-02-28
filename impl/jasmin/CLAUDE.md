@@ -2,7 +2,7 @@
 
 Context for Claude Code when working on the Jasmin implementation of XMSS/XMSS-MT. All paths below are relative to `impl/jasmin/`.
 
-Status: **XMSS single-tree and XMSS-MT complete** (keygen, sign, verify — all tested). XMSSMT-SHA2_20/2_256 tested with boundary crossing (1024+ signatures).
+Status: **XMSS single-tree and XMSS-MT complete** (keygen, sign, verify — all tested). XMSSMT-SHA2_20/2_256 tested with boundary crossing (1024+ signatures). **Production API exports** for 4 parameter sets with libjade naming convention.
 
 ## What Jasmin is
 
@@ -73,8 +73,11 @@ This analysis is a prerequisite to any work on extending or contributing to Jasm
 
 ```bash
 cd impl/jasmin
-make              # compile all tests
-make test         # build + run all 8 test suites
+make              # compile all tests + API binaries
+make test         # build + run 9 unit tests + 2 fast API tests
+make test-api     # fast API tests only (h=10 XMSS + XMSS-MT 20/2)
+make test-api-slow  # slow API tests (h=16: ~20s keygen, h=20: ~4min keygen)
+make ct           # CT checks on all 13 .jazz files (9 unit + 4 API)
 make clean        # remove .s and binaries
 make test/test_X  # build a single test (e.g. test/test_xmss)
 ```
@@ -89,6 +92,13 @@ impl/jasmin/
   blueprint.md          Implementation blueprint (design decisions, full implementation order)
   SKILL.md              Jasmin language reference, pitfalls, patterns
   Makefile
+  api/                  Production .jazz files with libjade naming
+    xmss_sha2_10_256.jazz     XMSS-SHA2_10_256 (h=10, OID=1)
+    xmss_sha2_16_256.jazz     XMSS-SHA2_16_256 (h=16, OID=2)
+    xmss_sha2_20_256.jazz     XMSS-SHA2_20_256 (h=20, OID=3)
+    xmssmt_sha2_20_2_256.jazz XMSSMT-SHA2_20/2_256 (D=2, h=10, OID=1)
+  include/
+    jade_sign_xmss.h   C header with buffer sizes and extern declarations
   src/
     hash/
       sha256_n32.jinc   SHA-256 backend (N=32) — DONE
@@ -101,13 +111,38 @@ impl/jasmin/
     xmss.jinc           XMSS keygen/sign/verify — DONE
     xmssmt.jinc         XMSS-MT keygen/sign/verify — DONE
   test/
-    test_*.jazz         Jasmin test wrappers (export fn for C harness)
-    test_*.c            C test harnesses
+    test_*.jazz         Jasmin unit test wrappers (export fn for C harness)
+    test_*.c            C unit test harnesses
+    test_api_xmss_common.h    Shared XMSS API test logic (parameterized)
+    test_api_xmssmt_common.h  Shared XMSS-MT API test logic (parameterized)
+    test_api_*.c        Per-parameter-set API test wrappers
   proof/
     (EasyCrypt proof files — later)
 ```
 
-Note: algorithm code lives in `.jinc` files (included via `require`). The `.jazz` files define `param int` constants and `require` the `.jinc` modules. Currently only test `.jazz` files exist; production `.jazz` files (e.g. `jade_xmss_sha2_10_256.jazz`) will be added later.
+## Production API
+
+The `api/` directory contains production `.jazz` files that export functions with libjade/NaCl/SUPERCOP naming. Each file sets `param int` values for one parameter set and requires the shared `.jinc` modules.
+
+### Export symbol naming
+
+```
+jade_sign_xmss_sha2_{h}_256_amd64_ref_keypair   (keygen)
+jade_sign_xmss_sha2_{h}_256_amd64_ref            (sign)
+jade_sign_xmss_sha2_{h}_256_amd64_ref_open       (verify)
+jade_sign_xmssmt_sha2_{h}_{d}_256_amd64_ref_*    (XMSS-MT variants)
+```
+
+### Parameter set summary
+
+| Set | OID | h | D | SK | PK | Sig | State | Scratch |
+|-----|-----|---|---|----|----|-----|-------|---------|
+| XMSS-SHA2_10_256 | 0x01 | 10 | 1 | 136 | 68 | 2500 | 1219 | 2240 |
+| XMSS-SHA2_16_256 | 0x02 | 16 | 1 | 136 | 68 | 2692 | 1957 | 2240 |
+| XMSS-SHA2_20_256 | 0x03 | 20 | 1 | 136 | 68 | 2820 | 2449 | 2240 |
+| XMSSMT-SHA2_20/2_256 | 0x01 | 10 | 2 | 135 | 68 | 4963 | 5801 | 2240 |
+
+Buffer sizes are defined in `include/jade_sign_xmss.h`.
 
 ## Jasmin language notes
 

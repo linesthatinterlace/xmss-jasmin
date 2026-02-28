@@ -9,8 +9,7 @@
  * Params: N, LEN, TREE_HEIGHT, BDS_K (param int from .jazz).
  */
 
-/* XMSS-SHA2_10_256 OID = 0x00000001 */
-param int XMSS_OID = 1;
+/* XMSS_OID must be defined by the .jazz file that requires this module */
 
 /* SK layout */
 param int SK_IDX_OFF      = 4;

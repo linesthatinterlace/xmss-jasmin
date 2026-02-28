@@ -16,8 +16,7 @@
  * Part A: XMSS-MT constants
  * ==================================================================== */
 
-/* XMSSMT-SHA2_20/2_256 OID = 0x01000001 (internal), RFC OID = 0x00000001 */
-param int XMSSMT_OID = 0x00000001;
+/* XMSSMT_OID must be defined by the .jazz file that requires this module */
 
 /* SK layout: OID(4) | idx(IDX_BYTES) | SK_SEED(N) | SK_PRF(N) | root(N) | SEED(N) */
 param int MT_SK_IDX_OFF      = 4;

@@ -1,6 +1,12 @@
-/* test_xmssmt.jazz — thin export wrappers for XMSS-MT keygen, sign, verify
+/* xmssmt_sha2_20_2_256.jazz — XMSSMT-SHA2_20/2_256 production exports
  *
- * Params: XMSSMT-SHA2_20/2_256
+ * Parameter set: XMSSMT-SHA2_20/2_256 (RFC 8391, OID 0x00000001)
+ * D: 2, FULL_H: 20, TREE_HEIGHT: 10, N: 32, W: 16
+ *
+ * Exports:
+ *   jade_sign_xmssmt_sha2_20_2_256_amd64_ref_keypair
+ *   jade_sign_xmssmt_sha2_20_2_256_amd64_ref
+ *   jade_sign_xmssmt_sha2_20_2_256_amd64_ref_open
  */
 
 param int N          = 32;
@@ -28,8 +34,9 @@ require "../src/bds.jinc"
 require "../src/xmssmt.jinc"
 
 #[ct = "public × public × public × public × public → public"]
-export fn test_xmssmt_keygen(reg u64 pk, reg u64 sk, reg u64 mt_state,
-                              reg u64 seeds, reg u64 scratch) -> reg u64 {
+export fn jade_sign_xmssmt_sha2_20_2_256_amd64_ref_keypair(
+    reg u64 pk, reg u64 sk, reg u64 mt_state,
+    reg u64 seeds, reg u64 scratch) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
   r = __xmssmt_keygen(pk, sk, mt_state, seeds, scratch);
@@ -37,9 +44,10 @@ export fn test_xmssmt_keygen(reg u64 pk, reg u64 sk, reg u64 mt_state,
 }
 
 #[ct = "public × public × public × public × public × public → public"]
-export fn test_xmssmt_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
-                            reg u64 sk, reg u64 mt_state,
-                            reg u64 scratch) -> reg u64 {
+export fn jade_sign_xmssmt_sha2_20_2_256_amd64_ref(
+    reg u64 sig, reg u64 msg, reg u64 msglen,
+    reg u64 sk, reg u64 mt_state,
+    reg u64 scratch) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
   r = __xmssmt_sign(sig, msg, msglen, sk, mt_state, scratch);
@@ -47,8 +55,9 @@ export fn test_xmssmt_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
 }
 
 #[ct = "public × public × public × public × public → secret"]
-export fn test_xmssmt_verify(reg u64 msg, reg u64 msglen, reg u64 sig,
-                              reg u64 pk, reg u64 scratch) -> reg u64 {
+export fn jade_sign_xmssmt_sha2_20_2_256_amd64_ref_open(
+    reg u64 msg, reg u64 msglen, reg u64 sig,
+    reg u64 pk, reg u64 scratch) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
   r = __xmssmt_verify(msg, msglen, sig, pk, scratch);

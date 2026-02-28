@@ -1,6 +1,12 @@
-/* test_xmss.jazz — thin export wrappers for XMSS keygen, sign, verify
+/* xmss_sha2_16_256.jazz — XMSS-SHA2_16_256 production exports
  *
- * Params: XMSS-SHA2_10_256
+ * Parameter set: XMSS-SHA2_16_256 (RFC 8391, OID 0x00000002)
+ * Tree height: 16, N: 32, W: 16
+ *
+ * Exports:
+ *   jade_sign_xmss_sha2_16_256_amd64_ref_keypair
+ *   jade_sign_xmss_sha2_16_256_amd64_ref
+ *   jade_sign_xmss_sha2_16_256_amd64_ref_open
  */
 
 param int N          = 32;
@@ -9,9 +15,9 @@ param int LOG2_W     = 4;
 param int LEN1       = 64;
 param int LEN2       = 3;
 param int LEN        = 67;
-param int TREE_HEIGHT = 10;
+param int TREE_HEIGHT = 16;
 param int BDS_K      = 2;
-param int XMSS_OID   = 1;
+param int XMSS_OID   = 0x00000002;
 
 require "../src/utils.jinc"
 require "../src/address.jinc"
@@ -23,8 +29,9 @@ require "../src/bds.jinc"
 require "../src/xmss.jinc"
 
 #[ct = "public × public × public × public × public → public"]
-export fn test_xmss_keygen(reg u64 pk, reg u64 sk, reg u64 state,
-                            reg u64 seeds, reg u64 scratch) -> reg u64 {
+export fn jade_sign_xmss_sha2_16_256_amd64_ref_keypair(
+    reg u64 pk, reg u64 sk, reg u64 state,
+    reg u64 seeds, reg u64 scratch) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
   r = __xmss_keygen(pk, sk, state, seeds, scratch);
@@ -32,9 +39,10 @@ export fn test_xmss_keygen(reg u64 pk, reg u64 sk, reg u64 state,
 }
 
 #[ct = "public × public × public × public × public × public → public"]
-export fn test_xmss_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
-                          reg u64 sk, reg u64 state,
-                          reg u64 scratch) -> reg u64 {
+export fn jade_sign_xmss_sha2_16_256_amd64_ref(
+    reg u64 sig, reg u64 msg, reg u64 msglen,
+    reg u64 sk, reg u64 state,
+    reg u64 scratch) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
   r = __xmss_sign(sig, msg, msglen, sk, state, scratch);
@@ -42,8 +50,9 @@ export fn test_xmss_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
 }
 
 #[ct = "public × public × public × public × public → secret"]
-export fn test_xmss_verify(reg u64 msg, reg u64 msglen, reg u64 sig,
-                            reg u64 pk, reg u64 scratch) -> reg u64 {
+export fn jade_sign_xmss_sha2_16_256_amd64_ref_open(
+    reg u64 msg, reg u64 msglen, reg u64 sig,
+    reg u64 pk, reg u64 scratch) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
   r = __xmss_verify(msg, msglen, sig, pk, scratch);
