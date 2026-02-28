@@ -5,6 +5,7 @@ param int N = 32;
 require "../src/hash/sha256_n32.jinc"
 
 /* One-shot SHA-256: hash inlen bytes at inp, write 32 bytes at out */
+#[ct = "public × public × public → public"]
 export fn test_sha256(reg u64 out, reg u64 inp, reg u64 inlen) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
@@ -14,6 +15,7 @@ export fn test_sha256(reg u64 out, reg u64 inp, reg u64 inlen) -> reg u64 {
 }
 
 /* Test PRF: out = SHA-256(toByte(3, 32) || key || m) */
+#[ct = "public × public × public → public"]
 export fn test_xmss_prf(reg u64 out, reg u64 key, reg u64 adrs_bytes) -> reg u64 {
   reg u64 r;
   _ = #init_msf();

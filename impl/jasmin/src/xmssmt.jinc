@@ -111,6 +111,8 @@ fn __xmssmt_verify(reg u64 msg, reg u64 msglen, reg u64 sig,
   /* Step 1: Read idx from sig[0..IDX_BYTES-1] */
   sig = s_sig;
   idx = __bytes_to_ull(sig, IDX_BYTES);
+  /* Leaf index is public (part of public signature) */
+  () = #declassify(idx);
 
   r = 1;
   if (idx <=u MT_IDX_MAX) {
@@ -509,6 +511,8 @@ fn __xmssmt_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
   tmp = sk;
   tmp += MT_SK_IDX_OFF;
   idx = __bytes_to_ull(tmp, IDX_BYTES);
+  /* Leaf index is a public counter */
+  () = #declassify(idx);
 
   r = 1;
   if (idx <=u MT_IDX_MAX) {

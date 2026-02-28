@@ -8,7 +8,7 @@ Read the CLAUDE.md in the relevant implementation directory for build commands, 
 
 - **C implementation** (`impl/c/`): Complete C99 reference. See `impl/c/CLAUDE.md` for build commands, architecture, Jasmin portability rules, and test structure.
 - **Rust implementation** (`impl/rust/`): Planned. See `impl/rust/CLAUDE.md` for build commands, architecture, and Rust-specific rules.
-- **Jasmin implementation** (`impl/jasmin/`): XMSS single-tree complete (keygen, sign, verify tested). XMSS-MT not yet started. Targets x86-64 first (mature backend); RISC-V port planned once the Jasmin RISC-V backend matures. See `impl/jasmin/CLAUDE.md` and `impl/jasmin/blueprint.md`.
+- **Jasmin implementation** (`impl/jasmin/`): XMSS and XMSS-MT complete (keygen, sign, verify tested). Targets x86-64 first (mature backend); RISC-V port planned once the Jasmin RISC-V backend matures. See `impl/jasmin/CLAUDE.md` and `impl/jasmin/blueprint.md`.
 
 ## Shared resources
 
@@ -36,9 +36,7 @@ Analyses which RISC-V ISA extensions `libxmss.a` actually requires, informing th
 - `isa/scripts/gen_lookup.sh` — generates authoritative mnemonic→extension lookup from `third_party/riscv-opcodes/`
 - `isa/scripts/analyse.sh` — disassembles `impl/c/build-rv/libxmss.a`, classifies by extension, detects C encoding from byte width
 - `isa/reports/xmss_rv64_isa_profile.md` — full per-object-file results with extension breakdown
-- `isa/reports/.report-todo.md` — brief for converting the profile into a PDF report for Francois Dupressoir
-
-**Key findings**: XMSS uses only I + M (M only for compiler address arithmetic). 48% of instructions use C encoding. No A/F/D/Zb*. Zbb (`ror`/`rev8`) is relevant for SHA-2 but not compiler-emitted with `-march=rv64gc`.
+**Key findings**: XMSS uses only I + M (M only for compiler address arithmetic). 48% of instructions use C encoding. No A/F/D/Zb*. Zbb (`ror`/`rev8`) is relevant for SHA-2 but not compiler-emitted with `-march=rv64gc`. PDF report completed.
 
 See `impl/jasmin/CLAUDE.md` for how these findings affect the Jasmin port strategy.
 

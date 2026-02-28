@@ -17,6 +17,7 @@ require "../src/treehash.jinc"
 /* Export compute_root for C test harness.
  * args: root, leaf, leaf_idx, auth, seed, adrs_ptr
  * adrs_ptr doubles as the 32-byte ADRS scratch buffer. */
+#[ct = "public × public × public × public × public × public → public"]
 export fn test_compute_root(reg u64 root, reg u64 leaf,
                             reg u64 leaf_idx_u64, reg u64 auth,
                             reg u64 seed, reg u64 adrs_ptr) -> reg u64 {
@@ -59,6 +60,7 @@ export fn test_compute_root(reg u64 root, reg u64 leaf,
  * scratch layout: [0..31] ADRS bytes, [32..LEN*N+31] wots_buf,
  *                 [LEN*N+32 ..] nodes_buf
  * Caller also passes ADRS via the first 32 bytes of scratch. */
+#[ct = "public × public × public × public × public × public → public"]
 export fn test_treehash(reg u64 root, reg u64 s_val, reg u64 t_val,
                         reg u64 sk_seed, reg u64 pub_seed,
                         reg u64 scratch) -> reg u64 {

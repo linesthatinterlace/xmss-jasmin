@@ -3,6 +3,7 @@
 require "../src/utils.jinc"
 
 /* Write val as 4-byte big-endian to out. */
+#[ct = "public × public → public"]
 export fn test_ull_to_bytes_4(reg u64 out, reg u64 val) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
@@ -12,6 +13,7 @@ export fn test_ull_to_bytes_4(reg u64 out, reg u64 val) -> reg u64 {
 }
 
 /* Write val as 8-byte big-endian to out. */
+#[ct = "public × public → public"]
 export fn test_ull_to_bytes_8(reg u64 out, reg u64 val) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
@@ -21,6 +23,7 @@ export fn test_ull_to_bytes_8(reg u64 out, reg u64 val) -> reg u64 {
 }
 
 /* Read 4-byte big-endian from inp into return value. */
+#[ct = "public → secret"]
 export fn test_bytes_to_ull_4(reg u64 inp) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
@@ -29,6 +32,7 @@ export fn test_bytes_to_ull_4(reg u64 inp) -> reg u64 {
 }
 
 /* Read 8-byte big-endian from inp into return value. */
+#[ct = "public → secret"]
 export fn test_bytes_to_ull_8(reg u64 inp) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
@@ -37,6 +41,7 @@ export fn test_bytes_to_ull_8(reg u64 inp) -> reg u64 {
 }
 
 /* CT compare 32 bytes at a and b. Returns 0 if equal. */
+#[ct = "public × public → secret"]
 export fn test_ct_memcmp_32(reg u64 a, reg u64 b) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
@@ -45,6 +50,7 @@ export fn test_ct_memcmp_32(reg u64 a, reg u64 b) -> reg u64 {
 }
 
 /* Zero 32 bytes at ptr. */
+#[ct = "public → public"]
 export fn test_memzero_32(reg u64 p) -> reg u64 {
   reg u64 r;
   _ = #init_msf();

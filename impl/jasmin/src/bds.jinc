@@ -78,6 +78,8 @@ inline fn __bds_stack_level_get(reg u64 state, reg u64 off) -> reg u8 {
   p += BDS_LEVELS_OFF;
   p += state;
   v = [:u8 p];
+  /* BDS stack levels are public (determined by public leaf index) */
+  () = #declassify(v);
   return v;
 }
 
@@ -95,6 +97,8 @@ inline fn __bds_stack_offset_get(reg u64 state) -> reg u32 {
   p = state;
   p += BDS_STKOFF_OFF;
   v = [:u32 p];
+  /* BDS stack offset is public (determined by public leaf index) */
+  () = #declassify(v);
   return v;
 }
 
@@ -128,6 +132,8 @@ inline fn __th_h_get_rt(reg u64 state, reg u64 level) -> reg u32 {
   p = __th_base_rt(state, level);
   p += N;
   v = [:u32 p];
+  /* Treehash height is public (tree structure parameter) */
+  () = #declassify(v);
   return v;
 }
 
@@ -144,6 +150,8 @@ inline fn __th_next_idx_get_rt(reg u64 state, reg u64 level) -> reg u32 {
   p = __th_base_rt(state, level);
   p += N + 4;
   v = [:u32 p];
+  /* Treehash next_idx is public (determined by public leaf counter) */
+  () = #declassify(v);
   return v;
 }
 
@@ -160,6 +168,8 @@ inline fn __th_stack_usage_get_rt(reg u64 state, reg u64 level) -> reg u8 {
   p = __th_base_rt(state, level);
   p += N + 8;
   v = [:u8 p];
+  /* Treehash stack_usage is public (determined by public leaf counter) */
+  () = #declassify(v);
   return v;
 }
 
@@ -176,6 +186,8 @@ inline fn __th_completed_get_rt(reg u64 state, reg u64 level) -> reg u8 {
   p = __th_base_rt(state, level);
   p += N + 9;
   v = [:u8 p];
+  /* Treehash completed flag is public (tree structure state) */
+  () = #declassify(v);
   return v;
 }
 
@@ -202,6 +214,8 @@ inline fn __bds_next_leaf_get(reg u64 state) -> reg u32 {
   p = state;
   p += BDS_NEXTLEAF_OFF;
   v = [:u32 p];
+  /* next_leaf is a public counter */
+  () = #declassify(v);
   return v;
 }
 

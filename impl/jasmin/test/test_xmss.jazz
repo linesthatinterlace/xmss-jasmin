@@ -21,6 +21,7 @@ require "../src/treehash.jinc"
 require "../src/bds.jinc"
 require "../src/xmss.jinc"
 
+#[ct = "public × public × public × public × public → public"]
 export fn test_xmss_keygen(reg u64 pk, reg u64 sk, reg u64 state,
                             reg u64 seeds, reg u64 scratch) -> reg u64 {
   reg u64 r;
@@ -29,6 +30,7 @@ export fn test_xmss_keygen(reg u64 pk, reg u64 sk, reg u64 state,
   return r;
 }
 
+#[ct = "public × public × public × public × public × public → public"]
 export fn test_xmss_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
                           reg u64 sk, reg u64 state,
                           reg u64 scratch) -> reg u64 {
@@ -38,6 +40,7 @@ export fn test_xmss_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
   return r;
 }
 
+#[ct = "public × public × public × public × public → secret"]
 export fn test_xmss_verify(reg u64 msg, reg u64 msglen, reg u64 sig,
                             reg u64 pk, reg u64 scratch) -> reg u64 {
   reg u64 r;

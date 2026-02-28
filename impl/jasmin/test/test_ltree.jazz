@@ -12,6 +12,7 @@ require "../src/hash/sha256_n32.jinc"
 require "../src/ltree.jinc"
 
 /* Export ltree for C test harness */
+#[ct = "public × public × public × public → public"]
 export fn test_ltree(reg u64 root, reg u64 pk, reg u64 seed,
                      reg u64 adrs_ptr) -> reg u64 {
   stack u32[8] adrs;

@@ -20,6 +20,7 @@ require "../src/bds.jinc"
  * scratch layout: [0..31] ADRS bytes (big-endian),
  *                 [32..32+LEN*N+N-1] wots_buf (LEN*N + N bytes scratch)
  */
+#[ct = "public × public × public × public × public → public"]
 export fn test_bds_treehash_init(reg u64 root, reg u64 state,
                                   reg u64 sk_seed, reg u64 pub_seed,
                                   reg u64 scratch) -> reg u64 {
@@ -63,6 +64,7 @@ export fn test_bds_treehash_init(reg u64 root, reg u64 state,
 /* Export bds_round for C test harness.
  * args: state, leaf_idx_u64, sk_seed, pub_seed, scratch
  */
+#[ct = "public × public × public × public × public → public"]
 export fn test_bds_round(reg u64 state, reg u64 leaf_idx_u64,
                           reg u64 sk_seed, reg u64 pub_seed,
                           reg u64 scratch) -> reg u64 {
@@ -104,6 +106,7 @@ export fn test_bds_round(reg u64 state, reg u64 leaf_idx_u64,
 /* Export bds_treehash_update for C test harness.
  * args: state, updates_u64, sk_seed, pub_seed, scratch
  */
+#[ct = "public × public × public × public × public → public"]
 export fn test_bds_treehash_update(reg u64 state, reg u64 updates_u64,
                                     reg u64 sk_seed, reg u64 pub_seed,
                                     reg u64 scratch) -> reg u64 {

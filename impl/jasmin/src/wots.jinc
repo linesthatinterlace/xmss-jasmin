@@ -268,6 +268,8 @@ fn __wots_sign(reg u64 sig, reg u64 msg, reg u64 sk_seed, reg u64 pub_seed,
     pub_seed = s_pub;
     start = 0;
     steps = lengths[(uint)idx];
+    /* Chain lengths are derived from the public message hash — safe to declassify */
+    () = #declassify(steps);
     __gen_chain(elem_ptr, start, steps, pub_seed, adrs_p);
 
     idx += 1;
@@ -328,6 +330,9 @@ fn __wots_pk_from_sig(reg u64 pk, reg u64 sig, reg u64 msg,
     wm1 = W - 1;
     steps = wm1;
     steps -= start;
+    /* Chain lengths are derived from the public message hash — safe to declassify */
+    () = #declassify(start);
+    () = #declassify(steps);
     __gen_chain(out_off, start, steps, pub_seed, adrs_p);
 
     idx += 1;

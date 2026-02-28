@@ -12,6 +12,7 @@ require "../src/hash/sha256_n32.jinc"
 require "../src/wots.jinc"
 
 /* Export wots_gen_pk for C test harness */
+#[ct = "public × public × public × public → public"]
 export fn test_wots_gen_pk(reg u64 pk, reg u64 sk_seed, reg u64 pub_seed,
                            reg u64 adrs_ptr) -> reg u64 {
   stack u32[8] adrs;
@@ -36,6 +37,7 @@ export fn test_wots_gen_pk(reg u64 pk, reg u64 sk_seed, reg u64 pub_seed,
 }
 
 /* Export wots_sign for C test harness */
+#[ct = "public × public × public × public × public → public"]
 export fn test_wots_sign(reg u64 sig, reg u64 msg, reg u64 sk_seed,
                          reg u64 pub_seed, reg u64 adrs_ptr) -> reg u64 {
   stack u32[8] adrs;
@@ -71,6 +73,7 @@ export fn test_wots_sign(reg u64 sig, reg u64 msg, reg u64 sk_seed,
 }
 
 /* Export wots_pk_from_sig for C test harness */
+#[ct = "public × public × public × public × public → public"]
 export fn test_wots_pk_from_sig(reg u64 pk, reg u64 sig, reg u64 msg,
                                 reg u64 pub_seed, reg u64 adrs_ptr) -> reg u64 {
   stack u32[8] adrs;

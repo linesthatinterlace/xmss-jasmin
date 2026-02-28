@@ -201,6 +201,8 @@ fn __xmss_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
   tmp = sk;
   tmp += SK_IDX_OFF;
   idx = __bytes_to_ull(tmp, 4);
+  /* Leaf index is a public counter */
+  () = #declassify(idx);
 
   /* Check idx > IDX_MAX → set r=1, skip body */
   r = 1;
@@ -366,6 +368,8 @@ fn __xmss_verify(reg u64 msg, reg u64 msglen, reg u64 sig,
   /* Step 1: Read idx from sig[0..3] */
   sig = s_sig;
   idx = __bytes_to_ull(sig, 4);
+  /* Leaf index is public (part of public signature) */
+  () = #declassify(idx);
 
   r = 1;
   if (idx <=u IDX_MAX) {

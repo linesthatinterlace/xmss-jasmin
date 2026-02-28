@@ -6,6 +6,7 @@ require "../src/address.jinc"
  * out: pointer to 32-byte output buffer.
  * Sets: layer=3, tree=0x123456789ABCDEF0, type=OTS(0), ots=42, chain=7, hash=1.
  * Returns 0 on success. */
+#[ct = "public → public"]
 export fn test_adrs_to_bytes(reg u64 out) -> reg u64 {
   stack u32[8] adrs;
   stack u8[32] buf;
@@ -51,6 +52,7 @@ export fn test_adrs_to_bytes(reg u64 out) -> reg u64 {
  * out: pointer to 32-byte output buffer.
  * Sets ots=99 then changes type to LTREE(1), which must zero word 4.
  * Returns 0 on success. */
+#[ct = "public → public"]
 export fn test_adrs_set_type_zeroes(reg u64 out) -> reg u64 {
   stack u32[8] adrs;
   stack u8[32] buf;
