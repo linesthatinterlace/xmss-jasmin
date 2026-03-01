@@ -76,7 +76,7 @@ int xmss_params_from_name(xmss_params *p, const char *name);
  * xmss_mt_params_from_oid() - populate params from an XMSS-MT OID.
  *
  * Accepts RFC 8391 XMSS-MT OIDs (0x00000001-0x00000020).
- * Internally stores with 0x01000000 prefix to disambiguate from XMSS OIDs.
+ * XMSS and XMSS-MT have separate OID namespaces per RFC 8391.
  * Returns 0 on success, -1 if OID is not recognised.
  */
 int xmss_mt_params_from_oid(xmss_params *p, uint32_t oid);
@@ -106,50 +106,49 @@ int xmss_mt_params_from_name(xmss_params *p, const char *name);
 /*
  * RFC 8391 Appendix B — XMSS-MT OID values.
  *
- * The RFC uses a *separate* IANA registry for XMSS-MT (0x00000001-0x00000020).
- * To disambiguate from XMSS OIDs in our single OID table, we store them
- * internally with a 0x01000000 prefix.  The serialized PK/SK/sig use RFC OIDs.
+ * XMSS and XMSS-MT have separate IANA registries per RFC 8391.
+ * The OID values below are the raw RFC values (0x00000001-0x00000020).
+ * Use xmss_mt_params_from_oid() (not xmss_params_from_oid()) to look up.
  */
-#define OID_XMSS_MT_PREFIX           0x01000000U
 
 /* SHA-2 based, n=32 */
-#define OID_XMSS_MT_SHA2_20_2_256    0x01000001U
-#define OID_XMSS_MT_SHA2_20_4_256    0x01000002U
-#define OID_XMSS_MT_SHA2_40_2_256    0x01000003U
-#define OID_XMSS_MT_SHA2_40_4_256    0x01000004U
-#define OID_XMSS_MT_SHA2_40_8_256    0x01000005U
-#define OID_XMSS_MT_SHA2_60_3_256    0x01000006U
-#define OID_XMSS_MT_SHA2_60_6_256    0x01000007U
-#define OID_XMSS_MT_SHA2_60_12_256   0x01000008U
+#define OID_XMSS_MT_SHA2_20_2_256    0x00000001U
+#define OID_XMSS_MT_SHA2_20_4_256    0x00000002U
+#define OID_XMSS_MT_SHA2_40_2_256    0x00000003U
+#define OID_XMSS_MT_SHA2_40_4_256    0x00000004U
+#define OID_XMSS_MT_SHA2_40_8_256    0x00000005U
+#define OID_XMSS_MT_SHA2_60_3_256    0x00000006U
+#define OID_XMSS_MT_SHA2_60_6_256    0x00000007U
+#define OID_XMSS_MT_SHA2_60_12_256   0x00000008U
 
 /* SHA-2 based, n=64 */
-#define OID_XMSS_MT_SHA2_20_2_512    0x01000009U
-#define OID_XMSS_MT_SHA2_20_4_512    0x0100000AU
-#define OID_XMSS_MT_SHA2_40_2_512    0x0100000BU
-#define OID_XMSS_MT_SHA2_40_4_512    0x0100000CU
-#define OID_XMSS_MT_SHA2_40_8_512    0x0100000DU
-#define OID_XMSS_MT_SHA2_60_3_512    0x0100000EU
-#define OID_XMSS_MT_SHA2_60_6_512    0x0100000FU
-#define OID_XMSS_MT_SHA2_60_12_512   0x01000010U
+#define OID_XMSS_MT_SHA2_20_2_512    0x00000009U
+#define OID_XMSS_MT_SHA2_20_4_512    0x0000000AU
+#define OID_XMSS_MT_SHA2_40_2_512    0x0000000BU
+#define OID_XMSS_MT_SHA2_40_4_512    0x0000000CU
+#define OID_XMSS_MT_SHA2_40_8_512    0x0000000DU
+#define OID_XMSS_MT_SHA2_60_3_512    0x0000000EU
+#define OID_XMSS_MT_SHA2_60_6_512    0x0000000FU
+#define OID_XMSS_MT_SHA2_60_12_512   0x00000010U
 
 /* SHAKE based, n=32 */
-#define OID_XMSS_MT_SHAKE_20_2_256   0x01000011U
-#define OID_XMSS_MT_SHAKE_20_4_256   0x01000012U
-#define OID_XMSS_MT_SHAKE_40_2_256   0x01000013U
-#define OID_XMSS_MT_SHAKE_40_4_256   0x01000014U
-#define OID_XMSS_MT_SHAKE_40_8_256   0x01000015U
-#define OID_XMSS_MT_SHAKE_60_3_256   0x01000016U
-#define OID_XMSS_MT_SHAKE_60_6_256   0x01000017U
-#define OID_XMSS_MT_SHAKE_60_12_256  0x01000018U
+#define OID_XMSS_MT_SHAKE_20_2_256   0x00000011U
+#define OID_XMSS_MT_SHAKE_20_4_256   0x00000012U
+#define OID_XMSS_MT_SHAKE_40_2_256   0x00000013U
+#define OID_XMSS_MT_SHAKE_40_4_256   0x00000014U
+#define OID_XMSS_MT_SHAKE_40_8_256   0x00000015U
+#define OID_XMSS_MT_SHAKE_60_3_256   0x00000016U
+#define OID_XMSS_MT_SHAKE_60_6_256   0x00000017U
+#define OID_XMSS_MT_SHAKE_60_12_256  0x00000018U
 
 /* SHAKE based, n=64 */
-#define OID_XMSS_MT_SHAKE_20_2_512   0x01000019U
-#define OID_XMSS_MT_SHAKE_20_4_512   0x0100001AU
-#define OID_XMSS_MT_SHAKE_40_2_512   0x0100001BU
-#define OID_XMSS_MT_SHAKE_40_4_512   0x0100001CU
-#define OID_XMSS_MT_SHAKE_40_8_512   0x0100001DU
-#define OID_XMSS_MT_SHAKE_60_3_512   0x0100001EU
-#define OID_XMSS_MT_SHAKE_60_6_512   0x0100001FU
-#define OID_XMSS_MT_SHAKE_60_12_512  0x01000020U
+#define OID_XMSS_MT_SHAKE_20_2_512   0x00000019U
+#define OID_XMSS_MT_SHAKE_20_4_512   0x0000001AU
+#define OID_XMSS_MT_SHAKE_40_2_512   0x0000001BU
+#define OID_XMSS_MT_SHAKE_40_4_512   0x0000001CU
+#define OID_XMSS_MT_SHAKE_40_8_512   0x0000001DU
+#define OID_XMSS_MT_SHAKE_60_3_512   0x0000001EU
+#define OID_XMSS_MT_SHAKE_60_6_512   0x0000001FU
+#define OID_XMSS_MT_SHAKE_60_12_512  0x00000020U
 
 #endif /* XMSS_PARAMS_H */

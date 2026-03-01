@@ -74,9 +74,11 @@ This analysis is a prerequisite to any work on extending or contributing to Jasm
 ```bash
 cd impl/jasmin
 make              # compile all tests + API binaries
-make test         # build + run 9 unit tests + 2 fast API tests
+make test         # build + run 9 unit tests + 2 fast API tests + 2 KAT tests + 2 interop tests
 make test-api     # fast API tests only (h=10 XMSS + XMSS-MT 20/2)
 make test-api-slow  # slow API tests (h=16: ~20s keygen, h=20: ~4min keygen)
+make test-kat     # KAT cross-validation against xmss-reference fingerprints
+make test-interop # cross-implementation interop (C sign↔Jasmin verify, builds libxmss.a)
 make ct           # CT checks on all 13 .jazz files (9 unit + 4 API)
 make clean        # remove .s and binaries
 make test/test_X  # build a single test (e.g. test/test_xmss)
@@ -116,6 +118,8 @@ impl/jasmin/
     test_api_xmss_common.h    Shared XMSS API test logic (parameterized)
     test_api_xmssmt_common.h  Shared XMSS-MT API test logic (parameterized)
     test_api_*.c        Per-parameter-set API test wrappers
+    test_kat_*.c        KAT cross-validation (links shake_local.c from impl/c/)
+    test_interop_*.c    Cross-implementation interop (links libxmss.a + Jasmin API .s)
   proof/
     (EasyCrypt proof files — later)
 ```
@@ -219,8 +223,8 @@ See `blueprint.md` for the full implementation plan including design decisions a
 
 ### Phase 1 completion (XMSS single-tree)
 
-- [ ] **KAT cross-validation** (blueprint item 12): Jasmin output must match C KAT fingerprints from `test_xmss_kat`. Requires building a Jasmin `.jazz` that produces the same output format as the C KAT generator.
-- [ ] **Cross-implementation verification** (blueprint §10): C sign → Jasmin verify, Jasmin sign → C verify, using identical seeds. Currently we only test Jasmin→Jasmin roundtrips.
+- [x] **KAT cross-validation** (blueprint item 12): SHAKE128 fingerprints match xmss-reference for both XMSS-SHA2_10_256 (PK + sig at idx=512) and XMSSMT-SHA2_20/2_256 (PK + sig at idx=4). Tests link against `impl/c/src/hash/shake_local.c` for SHAKE128. Run with `make test-kat`.
+- [x] **Cross-implementation verification** (blueprint §10): C sign → Jasmin verify, Jasmin sign → C verify, using identical seeds. Both XMSS-SHA2_10_256 and XMSSMT-SHA2_20/2_256 tested. PK/SK match byte-for-byte (both use RFC OIDs). Run with `make test-interop`.
 - [x] **CT check** (blueprint item 13): All 13 `.jazz` files pass `jasmin-ct` (9 unit + 4 API).
 - [x] **Additional parameter sets** (blueprint item 14): h=10, h=16, h=20 production `.jazz` files in `api/`, plus C header and parameterized test infrastructure. h=16 and h=20 runtime-tested via `make test-api-slow`.
 - [ ] **CI integration**: Add a Jasmin job to `.github/workflows/ci.yml` that installs `jasminc` and runs `make test`. Currently CI only covers the C implementation.
@@ -231,8 +235,8 @@ See `blueprint.md` for the full implementation plan including design decisions a
 - [x] **`src/xmssmt.jinc`**: XMSS-MT keygen, sign, verify with hypertree structure.
 - [x] **`__bds_state_update`** in `bds.jinc`: Incremental tree building for XMSS-MT.
 - [x] **Test harness**: 7 tests including 1024-signature boundary crossing.
-- [ ] **KAT cross-validation**: Jasmin XMSS-MT output must match C KAT fingerprints.
-- [ ] **Cross-implementation verification**: C sign → Jasmin verify, Jasmin sign → C verify.
+- [x] **KAT cross-validation**: XMSSMT-SHA2_20/2_256 fingerprints match xmss-reference (PK + sig at idx=4).
+- [x] **Cross-implementation verification**: C sign → Jasmin verify, Jasmin sign → C verify. Tested via `make test-interop`.
 - [x] **XMSSMT-SHA2_20/2_256 production API**: `api/xmssmt_sha2_20_2_256.jazz` with libjade naming, CT-checked, tested with boundary crossing.
 - [ ] **Additional XMSS-MT parameter sets**: d=4, d=8 `.jazz` files (need to verify BDS_K constraints with TREE_HEIGHT=5).
 

@@ -87,7 +87,7 @@ static int derive_params(xmss_params *p)
 }
 
 /*
- * Static OID table.  All 12 XMSS + 32 XMSS-MT RFC 8391 parameter sets.
+ * Static OID tables.  XMSS and XMSS-MT have separate OID namespaces per RFC 8391.
  * Fields: oid, name, func, n, w, h, d.  Remaining fields derived by derive_params().
  */
 typedef struct {
@@ -100,8 +100,8 @@ typedef struct {
     uint32_t d;
 } oid_entry_t;
 
-static const oid_entry_t oid_table[] = {
-    /* ---- XMSS (d=1) ---- */
+/* RFC 8391 Appendix A — 12 XMSS parameter sets (d=1) */
+static const oid_entry_t xmss_oid_table[] = {
     /* SHA-2 based */
     { OID_XMSS_SHA2_10_256,  "XMSS-SHA2_10_256",  XMSS_FUNC_SHA2,    32, 16, 10, 1 },
     { OID_XMSS_SHA2_16_256,  "XMSS-SHA2_16_256",  XMSS_FUNC_SHA2,    32, 16, 16, 1 },
@@ -116,8 +116,12 @@ static const oid_entry_t oid_table[] = {
     { OID_XMSS_SHAKE_10_512, "XMSS-SHAKE_10_512", XMSS_FUNC_SHAKE256, 64, 16, 10, 1 },
     { OID_XMSS_SHAKE_16_512, "XMSS-SHAKE_16_512", XMSS_FUNC_SHAKE256, 64, 16, 16, 1 },
     { OID_XMSS_SHAKE_20_512, "XMSS-SHAKE_20_512", XMSS_FUNC_SHAKE256, 64, 16, 20, 1 },
+};
 
-    /* ---- XMSS-MT (d>1) ---- */
+#define XMSS_OID_TABLE_SIZE ((uint32_t)(sizeof(xmss_oid_table) / sizeof(xmss_oid_table[0])))
+
+/* RFC 8391 Appendix B — 32 XMSS-MT parameter sets (d>1) */
+static const oid_entry_t xmss_mt_oid_table[] = {
     /* SHA-2 based, n=32 */
     { OID_XMSS_MT_SHA2_20_2_256,  "XMSSMT-SHA2_20/2_256",  XMSS_FUNC_SHA2,     32, 16, 20,  2 },
     { OID_XMSS_MT_SHA2_20_4_256,  "XMSSMT-SHA2_20/4_256",  XMSS_FUNC_SHA2,     32, 16, 20,  4 },
@@ -156,7 +160,7 @@ static const oid_entry_t oid_table[] = {
     { OID_XMSS_MT_SHAKE_60_12_512, "XMSSMT-SHAKE_60/12_512", XMSS_FUNC_SHAKE256, 64, 16, 60, 12 },
 };
 
-#define OID_TABLE_SIZE ((uint32_t)(sizeof(oid_table) / sizeof(oid_table[0])))
+#define XMSS_MT_OID_TABLE_SIZE ((uint32_t)(sizeof(xmss_mt_oid_table) / sizeof(xmss_mt_oid_table[0])))
 
 /* Populate params from a table entry */
 static int fill_from_entry(xmss_params *p, const oid_entry_t *e)
@@ -173,9 +177,9 @@ static int fill_from_entry(xmss_params *p, const oid_entry_t *e)
 int xmss_params_from_oid(xmss_params *p, uint32_t oid)
 {
     uint32_t i;
-    for (i = 0; i < OID_TABLE_SIZE; i++) {
-        if (oid_table[i].oid == oid && oid_table[i].d == 1) {
-            return fill_from_entry(p, &oid_table[i]);
+    for (i = 0; i < XMSS_OID_TABLE_SIZE; i++) {
+        if (xmss_oid_table[i].oid == oid) {
+            return fill_from_entry(p, &xmss_oid_table[i]);
         }
     }
     return XMSS_ERR_PARAMS;
@@ -184,9 +188,9 @@ int xmss_params_from_oid(xmss_params *p, uint32_t oid)
 int xmss_params_from_name(xmss_params *p, const char *name)
 {
     uint32_t i;
-    for (i = 0; i < OID_TABLE_SIZE; i++) {
-        if (strcmp(oid_table[i].name, name) == 0 && oid_table[i].d == 1) {
-            return fill_from_entry(p, &oid_table[i]);
+    for (i = 0; i < XMSS_OID_TABLE_SIZE; i++) {
+        if (strcmp(xmss_oid_table[i].name, name) == 0) {
+            return fill_from_entry(p, &xmss_oid_table[i]);
         }
     }
     return XMSS_ERR_PARAMS;
@@ -194,15 +198,10 @@ int xmss_params_from_name(xmss_params *p, const char *name)
 
 int xmss_mt_params_from_oid(xmss_params *p, uint32_t oid)
 {
-    /* Accept both RFC OIDs (0x00000001-0x00000020) and internal (0x01000001+) */
-    uint32_t internal_oid = oid;
     uint32_t i;
-    if (oid > 0 && oid <= 0x00000020U) {
-        internal_oid = oid | OID_XMSS_MT_PREFIX;
-    }
-    for (i = 0; i < OID_TABLE_SIZE; i++) {
-        if (oid_table[i].oid == internal_oid && oid_table[i].d > 1) {
-            return fill_from_entry(p, &oid_table[i]);
+    for (i = 0; i < XMSS_MT_OID_TABLE_SIZE; i++) {
+        if (xmss_mt_oid_table[i].oid == oid) {
+            return fill_from_entry(p, &xmss_mt_oid_table[i]);
         }
     }
     return XMSS_ERR_PARAMS;
@@ -211,9 +210,9 @@ int xmss_mt_params_from_oid(xmss_params *p, uint32_t oid)
 int xmss_mt_params_from_name(xmss_params *p, const char *name)
 {
     uint32_t i;
-    for (i = 0; i < OID_TABLE_SIZE; i++) {
-        if (strcmp(oid_table[i].name, name) == 0 && oid_table[i].d > 1) {
-            return fill_from_entry(p, &oid_table[i]);
+    for (i = 0; i < XMSS_MT_OID_TABLE_SIZE; i++) {
+        if (strcmp(xmss_mt_oid_table[i].name, name) == 0) {
+            return fill_from_entry(p, &xmss_mt_oid_table[i]);
         }
     }
     return XMSS_ERR_PARAMS;
