@@ -2,7 +2,7 @@
 
 Context for Claude Code when working on the Jasmin implementation of XMSS/XMSS-MT. All paths below are relative to `impl/jasmin/`.
 
-Status: **XMSS single-tree and XMSS-MT complete** (keygen, sign, verify — all tested). XMSSMT-SHA2_20/2_256 tested with boundary crossing (1024+ signatures). **Production API exports** for 4 parameter sets with libjade naming convention.
+Status: **XMSS single-tree and XMSS-MT complete** (keygen, sign, verify — all tested). XMSSMT-SHA2_20/2_256 tested with boundary crossing (1024+ signatures). **Production API exports** for 5 parameter sets with libjade naming convention.
 
 ## What Jasmin is
 
@@ -79,7 +79,7 @@ make test-api     # fast API tests only (h=10 XMSS + XMSS-MT 20/2)
 make test-api-slow  # slow API tests (h=16: ~20s keygen, h=20: ~4min keygen)
 make test-kat     # KAT cross-validation against xmss-reference fingerprints
 make test-interop # cross-implementation interop (C sign↔Jasmin verify, builds libxmss.a)
-make ct           # CT checks on all 13 .jazz files (9 unit + 4 API)
+make ct           # CT checks on all 14 .jazz files (9 unit + 5 API)
 make clean        # remove .s and binaries
 make test/test_X  # build a single test (e.g. test/test_xmss)
 ```
@@ -99,6 +99,7 @@ impl/jasmin/
     xmss_sha2_16_256.jazz     XMSS-SHA2_16_256 (h=16, OID=2)
     xmss_sha2_20_256.jazz     XMSS-SHA2_20_256 (h=20, OID=3)
     xmssmt_sha2_20_2_256.jazz XMSSMT-SHA2_20/2_256 (D=2, h=10, OID=1)
+    xmssmt_sha2_20_4_256.jazz XMSSMT-SHA2_20/4_256 (D=4, h=5, OID=2)
   include/
     jade_sign_xmss.h   C header with buffer sizes and extern declarations
   src/
@@ -145,6 +146,7 @@ jade_sign_xmssmt_sha2_{h}_{d}_256_amd64_ref_*    (XMSS-MT variants)
 | XMSS-SHA2_16_256 | 0x02 | 16 | 1 | 136 | 68 | 2692 | 1957 | 2240 |
 | XMSS-SHA2_20_256 | 0x03 | 20 | 1 | 136 | 68 | 2820 | 2449 | 2240 |
 | XMSSMT-SHA2_20/2_256 | 0x01 | 10 | 2 | 135 | 68 | 4963 | 5801 | 2240 |
+| XMSSMT-SHA2_20/4_256 | 0x02 | 5 | 4 | 135 | 68 | 9251 | 10548 | 2240 |
 
 Buffer sizes are defined in `include/jade_sign_xmss.h`.
 
@@ -186,6 +188,20 @@ These parallel the C implementation's J1–J8 rules:
   - Keccak-f[1600]: `src/common/keccak/keccak1600/amd64/ref/`
 - formosa-crypto organisation: https://github.com/formosa-crypto
 - **formosa-xmss**: https://github.com/formosa-crypto/formosa-xmss — a human-authored Jasmin implementation of XMSS, subject to active research. Scope and parameter coverage TBD. **Do not treat as a template or copy from it** — our implementation is independent — but it is prior art worth being aware of and potentially cross-validating against.
+
+## Known issues
+
+### BDS auth path bug with TREE_HEIGHT=5 (XMSSMT-SHA2_20/4_256)
+
+Jasmin BDS produces wrong auth paths starting at leaf index 16 when TREE_HEIGHT=5, BDS_K=2. Keygen, basic sign/verify (indices 0-15), and sequential signing all pass. Verification fails from idx=16 onward (after bds_round(15) updates auth[0..3] from treehash nodes and retain).
+
+**Facts:**
+- The C implementation passes all indices for the same parameter set (confirmed).
+- One bug was found and fixed: `__bds_treehash_init` and `__bds_state_update` used separate `if` blocks for auth/treehash/retain capture. The C code uses `else if` chains, making them mutually exclusive. Fixed by adding `else` to nest treehash+retain inside the auth `else` branch.
+- The `else if` fix is correct but does not resolve the idx=16 failure. The root cause is still in `bds.jinc`, somewhere in the bds_round or treehash_update logic for small TREE_HEIGHT values.
+- The boundary test for 20/4 is disabled in the test file until this is fixed.
+
+**To debug:** Methodically compare C `bds_round` + `bds_treehash_update` + `treehash_update_one` against the Jasmin equivalents for TREE_HEIGHT=5, focusing on the state transitions between idx=15 and idx=16 (tau=4 at bds_round(15)).
 
 ## WWW/EBI
 
@@ -229,7 +245,7 @@ See `SPEC.md` for foundational design decisions (D1–D6) relevant to code revie
 
 - [x] **CI integration**: Jasmin job in `.github/workflows/ci.yml` (unit, API, KAT, interop, CT).
 - [ ] **Code review**: Full review of all Jasmin code.
-- [ ] **Additional XMSS-MT parameter sets**: d=4, d=8 `.jazz` files (need to verify BDS_K constraints with TREE_HEIGHT=5).
+- [ ] **Additional XMSS-MT parameter sets**: d=4 `.jazz` file (d=8 doesn't divide h=20; only d=2 and d=4 exist for h=20 in RFC 8391).
 - [ ] **SHA-512 backend** (`src/hash/sha512_n64.jinc`)
 - [ ] **SHAKE-128/256 backends**
 

@@ -25,7 +25,7 @@ ASM := $(addsuffix .s,$(TESTS))
 
 # Production API .jazz files
 API_JAZZ := api/xmss_sha2_10_256 api/xmss_sha2_16_256 api/xmss_sha2_20_256 \
-            api/xmssmt_sha2_20_2_256
+            api/xmssmt_sha2_20_2_256 api/xmssmt_sha2_20_4_256
 
 API_JAZZ_FILES := $(addsuffix .jazz,$(API_JAZZ))
 API_ASM := $(addsuffix .s,$(API_JAZZ))
@@ -34,7 +34,8 @@ API_ASM := $(addsuffix .s,$(API_JAZZ))
 #   fast: h=10 XMSS + XMSS-MT 20/2 (keygen ~1s each, boundary ~30s)
 #   slow: h=16 (~20s keygen) and h=20 (~4min keygen)
 API_TESTS_FAST := test/test_api_xmss_sha2_10_256 \
-                  test/test_api_xmssmt_sha2_20_2_256
+                  test/test_api_xmssmt_sha2_20_2_256 \
+                  test/test_api_xmssmt_sha2_20_4_256
 API_TESTS_SLOW := test/test_api_xmss_sha2_16_256 \
                   test/test_api_xmss_sha2_20_256
 
@@ -129,6 +130,9 @@ test/test_api_xmss_sha2_20_256: test/test_api_xmss_sha2_20_256.c api/xmss_sha2_2
 
 # XMSS-MT parameter sets
 test/test_api_xmssmt_sha2_20_2_256: test/test_api_xmssmt_sha2_20_2_256.c api/xmssmt_sha2_20_2_256.s
+	$(CC) -o $@ $^ $(CFLAGS)
+
+test/test_api_xmssmt_sha2_20_4_256: test/test_api_xmssmt_sha2_20_4_256.c api/xmssmt_sha2_20_4_256.s
 	$(CC) -o $@ $^ $(CFLAGS)
 
 # Build C libxmss.a (for interop tests)

@@ -78,6 +78,7 @@ jobs:
         run: |
           ./test/test_api_xmss_sha2_10_256
           ./test/test_api_xmssmt_sha2_20_2_256
+          ./test/test_api_xmssmt_sha2_20_4_256
 
       - name: KAT tests
         run: |

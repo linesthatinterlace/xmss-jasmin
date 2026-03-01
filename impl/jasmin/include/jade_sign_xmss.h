@@ -115,4 +115,28 @@ extern uint64_t jade_sign_xmssmt_sha2_20_2_256_amd64_ref_open(
     const uint8_t *msg, uint64_t msglen,
     const uint8_t *sig, const uint8_t *pk, uint8_t *scratch);
 
+/* ================================================================
+ * XMSSMT-SHA2_20/4_256 (OID 0x00000002)
+ * D=4, FULL_H=20, TREE_HEIGHT=5, N=32, W=16, LEN=67
+ * ================================================================ */
+
+#define JADE_SIGN_XMSSMT_SHA2_20_4_256_PUBLICKEYBYTES  68
+#define JADE_SIGN_XMSSMT_SHA2_20_4_256_SECRETKEYBYTES  135
+#define JADE_SIGN_XMSSMT_SHA2_20_4_256_BYTES           9251
+#define JADE_SIGN_XMSSMT_SHA2_20_4_256_STATEBYTES      10548
+#define JADE_SIGN_XMSSMT_SHA2_20_4_256_SEEDBYTES       96
+#define JADE_SIGN_XMSSMT_SHA2_20_4_256_SCRATCHBYTES    2240
+
+extern uint64_t jade_sign_xmssmt_sha2_20_4_256_amd64_ref_keypair(
+    uint8_t *pk, uint8_t *sk, uint8_t *mt_state,
+    const uint8_t *seeds, uint8_t *scratch);
+
+extern uint64_t jade_sign_xmssmt_sha2_20_4_256_amd64_ref(
+    uint8_t *sig, const uint8_t *msg, uint64_t msglen,
+    uint8_t *sk, uint8_t *mt_state, uint8_t *scratch);
+
+extern uint64_t jade_sign_xmssmt_sha2_20_4_256_amd64_ref_open(
+    const uint8_t *msg, uint64_t msglen,
+    const uint8_t *sig, const uint8_t *pk, uint8_t *scratch);
+
 #endif /* JADE_SIGN_XMSS_H */
