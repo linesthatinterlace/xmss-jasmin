@@ -8,6 +8,12 @@ CFLAGS   := -no-pie
 # Every .jinc file — conservative dep tracking (jasminc has no -MMD)
 ALL_JINC := $(wildcard src/*.jinc src/**/*.jinc)
 
+# C implementation — used by KAT tests (shake_local) and interop tests (libxmss.a)
+C_IMPL       := ../c
+C_LIB        := $(C_IMPL)/build-rel/libxmss.a
+SHAKE_LOCAL_C := $(C_IMPL)/src/hash/shake_local.c
+SHAKE_LOCAL_H := $(C_IMPL)/src/hash/shake_local.h
+
 # Unit tests (existing)
 TESTS := test/test_address test/test_utils test/test_sha256 \
          test/test_wots test/test_ltree test/test_treehash test/test_bds \
@@ -34,22 +40,45 @@ API_TESTS_SLOW := test/test_api_xmss_sha2_16_256 \
 
 API_TESTS := $(API_TESTS_FAST) $(API_TESTS_SLOW)
 
+# KAT cross-validation tests (link Jasmin API .s + C shake_local.c)
+KAT_TESTS := test/test_kat_xmss_sha2_10_256 \
+              test/test_kat_xmssmt_sha2_20_2_256
+
+# Cross-implementation interop tests (link Jasmin API .s + C libxmss.a)
+INTEROP_TESTS := test/test_interop_xmss_sha2_10_256 \
+                 test/test_interop_xmssmt_sha2_20_2_256
+
 # Prevent Make from deleting .s files as intermediates
 .PRECIOUS: $(ASM) $(API_ASM)
 
 JASMIN_CT := jasmin-ct
 
-.PHONY: all test test-api test-api-slow ct clean
+.PHONY: all test test-api test-api-slow test-kat test-interop ct clean
 
-all: $(TESTS) $(API_TESTS)
+all: $(TESTS) $(API_TESTS) $(KAT_TESTS) $(INTEROP_TESTS)
 
-# Default test target: unit tests + fast API tests
-test: $(TESTS) $(API_TESTS_FAST)
+# Default test target: unit tests + fast API tests + KAT tests + interop tests
+test: $(TESTS) $(API_TESTS_FAST) $(KAT_TESTS) $(INTEROP_TESTS)
 	@for t in $(TESTS); do \
 		echo "=== $$t ==="; \
 		./$$t || exit 1; \
 	done
 	@for t in $(API_TESTS_FAST); do \
+		echo "=== $$t ==="; \
+		./$$t || exit 1; \
+	done
+	@for t in $(KAT_TESTS); do \
+		echo "=== $$t ==="; \
+		./$$t || exit 1; \
+	done
+	@for t in $(INTEROP_TESTS); do \
+		echo "=== $$t ==="; \
+		./$$t || exit 1; \
+	done
+
+# KAT cross-validation tests only
+test-kat: $(KAT_TESTS)
+	@for t in $(KAT_TESTS); do \
 		echo "=== $$t ==="; \
 		./$$t || exit 1; \
 	done
@@ -102,5 +131,30 @@ test/test_api_xmss_sha2_20_256: test/test_api_xmss_sha2_20_256.c api/xmss_sha2_2
 test/test_api_xmssmt_sha2_20_2_256: test/test_api_xmssmt_sha2_20_2_256.c api/xmssmt_sha2_20_2_256.s
 	$(CC) -o $@ $^ $(CFLAGS)
 
+# Build C libxmss.a (for interop tests)
+$(C_LIB):
+	$(MAKE) -C $(C_IMPL)
+
+# Cross-implementation interop tests: link C test + Jasmin API .s + libxmss.a
+test/test_interop_xmss_sha2_10_256: test/test_interop_xmss_sha2_10_256.c api/xmss_sha2_10_256.s $(C_LIB)
+	$(CC) -o $@ test/test_interop_xmss_sha2_10_256.c api/xmss_sha2_10_256.s $(C_LIB) -I$(C_IMPL)/include $(CFLAGS)
+
+test/test_interop_xmssmt_sha2_20_2_256: test/test_interop_xmssmt_sha2_20_2_256.c api/xmssmt_sha2_20_2_256.s $(C_LIB)
+	$(CC) -o $@ test/test_interop_xmssmt_sha2_20_2_256.c api/xmssmt_sha2_20_2_256.s $(C_LIB) -I$(C_IMPL)/include $(CFLAGS)
+
+# Cross-implementation interop tests only
+test-interop: $(INTEROP_TESTS)
+	@for t in $(INTEROP_TESTS); do \
+		echo "=== $$t ==="; \
+		./$$t || exit 1; \
+	done
+
+# KAT cross-validation tests: link C test + API assembly + shake_local.c
+test/test_kat_xmss_sha2_10_256: test/test_kat_xmss_sha2_10_256.c api/xmss_sha2_10_256.s $(SHAKE_LOCAL_C) $(SHAKE_LOCAL_H)
+	$(CC) -o $@ test/test_kat_xmss_sha2_10_256.c api/xmss_sha2_10_256.s $(SHAKE_LOCAL_C) -I$(C_IMPL)/src/hash $(CFLAGS)
+
+test/test_kat_xmssmt_sha2_20_2_256: test/test_kat_xmssmt_sha2_20_2_256.c api/xmssmt_sha2_20_2_256.s $(SHAKE_LOCAL_C) $(SHAKE_LOCAL_H)
+	$(CC) -o $@ test/test_kat_xmssmt_sha2_20_2_256.c api/xmssmt_sha2_20_2_256.s $(SHAKE_LOCAL_C) -I$(C_IMPL)/src/hash $(CFLAGS)
+
 clean:
-	rm -f $(ASM) $(TESTS) $(API_ASM) $(API_TESTS)
+	rm -f $(ASM) $(TESTS) $(API_ASM) $(API_TESTS) $(KAT_TESTS) $(INTEROP_TESTS)
