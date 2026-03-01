@@ -223,7 +223,7 @@ See `SPEC.md` for foundational design decisions (D1–D6) relevant to code revie
 
 ### Remaining work
 
-- [ ] **CI integration**: Add a Jasmin job to `.github/workflows/ci.yml` (in progress).
+- [x] **CI integration**: Jasmin job in `.github/workflows/ci.yml` (unit, API, KAT, interop, CT).
 - [ ] **Code review**: Full review of all Jasmin code.
 - [ ] **Additional XMSS-MT parameter sets**: d=4, d=8 `.jazz` files (need to verify BDS_K constraints with TREE_HEIGHT=5).
 - [ ] **SHA-512 backend** (`src/hash/sha512_n64.jinc`)

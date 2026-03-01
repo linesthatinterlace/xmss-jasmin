@@ -8,7 +8,7 @@ Read the CLAUDE.md in the relevant implementation directory for build commands, 
 
 - **C implementation** (`impl/c/`): Complete C99 reference. See `impl/c/CLAUDE.md` for build commands, architecture, Jasmin portability rules, and test structure.
 - **Rust implementation** (`impl/rust/`): Planned. See `impl/rust/CLAUDE.md` for build commands, architecture, and Rust-specific rules.
-- **Jasmin implementation** (`impl/jasmin/`): XMSS and XMSS-MT complete (keygen, sign, verify tested). Targets x86-64 first (mature backend); RISC-V port planned once the Jasmin RISC-V backend matures. See `impl/jasmin/CLAUDE.md` and `impl/jasmin/blueprint.md`.
+- **Jasmin implementation** (`impl/jasmin/`): XMSS and XMSS-MT complete (keygen, sign, verify tested). Targets x86-64 first (mature backend); RISC-V port planned once the Jasmin RISC-V backend matures. See `impl/jasmin/CLAUDE.md` and `impl/jasmin/SPEC.md`.
 
 ## Shared resources
 
@@ -20,7 +20,7 @@ Read the CLAUDE.md in the relevant implementation directory for build commands, 
 
 GitHub Actions CI runs on every push and PR:
 
-- **`ci.yml`**: gcc and clang (native, `-Werror`), all 12 C tests (~4 min each). **Does not yet include Jasmin tests** — adding a Jasmin CI job is a TODO (see `impl/jasmin/CLAUDE.md`).
+- **`ci.yml`**: gcc and clang (native, `-Werror`), all 12 C tests (~4 min each). Jasmin job: installs jasminc via opam, runs 9 unit tests + 2 fast API + 2 KAT + 2 interop + CT checks (~17 min).
 - **`riscv.yml`**: RISC-V cross-compile + QEMU (fast tests + sign/verify roundtrips). Weekly + manual trigger.
 
 **Prefer pushing and letting CI run the full test suite** rather than running slow tests locally. Use `make test-fast` locally for quick smoke checks, then push to get full coverage across compilers.
