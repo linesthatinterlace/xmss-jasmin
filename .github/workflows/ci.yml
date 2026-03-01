@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
+    paths-ignore:
+      - '**/*.md'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
 
 jobs:
   native:
@@ -56,7 +60,7 @@ jobs:
           cmake --build build-rel --target xmss
 
       - name: Compile
-        run: opam exec -- make
+        run: opam exec -- make -j$(nproc)
 
       - name: Unit tests
         run: |
