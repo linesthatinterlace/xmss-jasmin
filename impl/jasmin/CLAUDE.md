@@ -91,7 +91,7 @@ The Makefile uses conservative dependency tracking: all `.jinc` files are deps o
 ```
 impl/jasmin/
   CLAUDE.md
-  blueprint.md          Implementation blueprint (design decisions, full implementation order)
+  SPEC.md              Implementation specification (design decisions, data layouts, security properties)
   SKILL.md              Jasmin language reference, pitfalls, patterns
   Makefile
   api/                  Production .jazz files with libjade naming
@@ -212,41 +212,25 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Shorten the feedback loop, especially in unforgiving languages.** Writing everything before the first compile trades a fast "does this approach work?" signal for a large, tangled error. Validate the riskiest integration point first (here: the first fn that calls into existing code), then build outward.
 - **Use runtime tools before code review for runtime bugs.** Valgrind found the uninitialized-stack-read in seconds; manual code review of 1100 lines of register-spill-heavy Jasmin could not. When a bug manifests at runtime (wrong output, non-determinism, crashes), reach for `valgrind`, `gdb`, or targeted printfs *first*. Reserve code review for compile-time errors and design issues where tools can't help.
 - **Consult your own notes before debugging.** When hitting a compiler error, check MEMORY.md and SKILL.md *first* — don't start reading source code and exploring. Three of four compile errors in the xmss.jinc session were already-documented patterns (no early returns, u64 for stack indexing, require chain). Reading notes for 10 seconds beats a debug chain.
-- **Discover all project documents at session start.** Missing `blueprint.md` meant missing the full implementation order, phase gates, and cross-implementation verification requirements. At the start of a session, glob for `*.md` in the working directory — don't assume CLAUDE.md is the only guide.
+- **Discover all project documents at session start.** Missing `SPEC.md` meant missing the full implementation order, phase gates, and cross-implementation verification requirements. At the start of a session, glob for `*.md` in the working directory — don't assume CLAUDE.md is the only guide.
 - **Read each warning individually, not by category.** "Dead variable warning" does not mean "the usual `#set0()` pattern." Read the *line number*. Two warnings in XMSS-MT were genuine dead stores (an unused spill and an overwritten assignment), not the benign `#set0()` pattern. Pattern-matching on warning type instead of reading the specific instance is how real issues get shipped.
 - **Compile each function before writing the next.** Writing verify + keygen + sign in one pass before compiling meant the verify register-pressure bug (inline `for` unroll) and the sign register-pressure bug (`updates` live across SHA-256) were tangled together. Compiling verify alone first would have isolated and fixed it in seconds.
 - **Surface runtime cost early when adding test targets.** h=16 keygen takes ~40s (×2 for determinism), h=20 takes ~8min (×2). These costs should be estimated and communicated *before* wiring tests into `make test`, not discovered when the user watches a hanging build. Split fast/slow targets from the start; don't assume all parameter sets have similar runtime.
 
 ## What's next
 
-See `blueprint.md` for the full implementation plan including design decisions and implementation order. We are through item 11 of 14. Remaining work:
+See `SPEC.md` for foundational design decisions (D1–D6) relevant to code review.
 
-### Phase 1 completion (XMSS single-tree)
+### Remaining work
 
-- [x] **KAT cross-validation** (blueprint item 12): SHAKE128 fingerprints match xmss-reference for both XMSS-SHA2_10_256 (PK + sig at idx=512) and XMSSMT-SHA2_20/2_256 (PK + sig at idx=4). Tests link against `impl/c/src/hash/shake_local.c` for SHAKE128. Run with `make test-kat`.
-- [x] **Cross-implementation verification** (blueprint §10): C sign → Jasmin verify, Jasmin sign → C verify, using identical seeds. Both XMSS-SHA2_10_256 and XMSSMT-SHA2_20/2_256 tested. PK/SK match byte-for-byte (both use RFC OIDs). Run with `make test-interop`.
-- [x] **CT check** (blueprint item 13): All 13 `.jazz` files pass `jasmin-ct` (9 unit + 4 API).
-- [x] **Additional parameter sets** (blueprint item 14): h=10, h=16, h=20 production `.jazz` files in `api/`, plus C header and parameterized test infrastructure. h=16 and h=20 runtime-tested via `make test-api-slow`.
-- [ ] **CI integration**: Add a Jasmin job to `.github/workflows/ci.yml` that installs `jasminc` and runs `make test`. Currently CI only covers the C implementation.
-- [ ] **Code review**: Full review of all Jasmin code once Phase 1 is complete.
-
-### Phase 2 completion (XMSS-MT) — DONE
-
-- [x] **`src/xmssmt.jinc`**: XMSS-MT keygen, sign, verify with hypertree structure.
-- [x] **`__bds_state_update`** in `bds.jinc`: Incremental tree building for XMSS-MT.
-- [x] **Test harness**: 7 tests including 1024-signature boundary crossing.
-- [x] **KAT cross-validation**: XMSSMT-SHA2_20/2_256 fingerprints match xmss-reference (PK + sig at idx=4).
-- [x] **Cross-implementation verification**: C sign → Jasmin verify, Jasmin sign → C verify. Tested via `make test-interop`.
-- [x] **XMSSMT-SHA2_20/2_256 production API**: `api/xmssmt_sha2_20_2_256.jazz` with libjade naming, CT-checked, tested with boundary crossing.
+- [ ] **CI integration**: Add a Jasmin job to `.github/workflows/ci.yml` (in progress).
+- [ ] **Code review**: Full review of all Jasmin code.
 - [ ] **Additional XMSS-MT parameter sets**: d=4, d=8 `.jazz` files (need to verify BDS_K constraints with TREE_HEIGHT=5).
-
-### Phase 3 (additional hash backends)
-
-- [ ] SHA-512 backend (`src/hash/sha512_n64.jinc`)
-- [ ] SHAKE-128/256 backends
+- [ ] **SHA-512 backend** (`src/hash/sha512_n64.jinc`)
+- [ ] **SHAKE-128/256 backends**
 
 ### Longer-term
 
 - EasyCrypt proof strategy: which properties to prove first (CT? functional correctness of WOTS+?).
-- RISC-V backend: track Jasmin upstream; port once backend is stable. **Prerequisite**: complete the RISC-V instruction analysis (see Architecture section) to understand what backend support is actually needed.
+- RISC-V backend: track Jasmin upstream; port once backend is stable.
 - Possible libjade integration or contribution.
