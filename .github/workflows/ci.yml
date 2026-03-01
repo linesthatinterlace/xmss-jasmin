@@ -31,3 +31,59 @@ jobs:
 
       - name: Full tests
         run: ctest --test-dir build --output-on-failure
+
+  jasmin:
+    name: jasmin
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: impl/jasmin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "4.14"
+
+      - name: Install Jasmin
+        run: opam install jasmin -y
+
+      - name: Build C library
+        working-directory: impl/c
+        run: |
+          cmake -B build-rel -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-rel --target xmss
+
+      - name: Compile
+        run: opam exec -- make
+
+      - name: Unit tests
+        run: |
+          ./test/test_address
+          ./test/test_utils
+          ./test/test_sha256
+          ./test/test_wots
+          ./test/test_ltree
+          ./test/test_treehash
+          ./test/test_bds
+          ./test/test_xmss
+          ./test/test_xmssmt
+
+      - name: API tests (fast)
+        run: |
+          ./test/test_api_xmss_sha2_10_256
+          ./test/test_api_xmssmt_sha2_20_2_256
+
+      - name: KAT tests
+        run: |
+          ./test/test_kat_xmss_sha2_10_256
+          ./test/test_kat_xmssmt_sha2_20_2_256
+
+      - name: Interop tests
+        run: |
+          ./test/test_interop_xmss_sha2_10_256
+          ./test/test_interop_xmssmt_sha2_20_2_256
+
+      - name: CT checks
+        run: opam exec -- make ct
