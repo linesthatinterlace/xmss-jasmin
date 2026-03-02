@@ -332,9 +332,11 @@ int xmss_sign(const xmss_params *p, uint8_t *sig,
 
     bds_round(p, state, bds_k, (uint32_t)idx, sk_seed, pub_seed, &adrs);
 
-    /* Run treehash updates: (h - bds_k) / 2 updates per signature */
+    /* Run treehash updates: ceil((h - bds_k) / 2) updates per signature.
+     * Must round up: floor division starves high treehash instances when
+     * (h - bds_k) is odd (e.g. h=5, k=2 → need 2, not 1). */
     if (p->tree_height > bds_k) {
-        bds_treehash_update(p, state, bds_k, (p->tree_height - bds_k) / 2,
+        bds_treehash_update(p, state, bds_k, (p->tree_height - bds_k + 1) / 2,
                             sk_seed, pub_seed, &adrs);
     }
 

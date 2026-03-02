@@ -206,7 +206,9 @@ int xmss_mt_sign(const xmss_params *p, uint8_t *sig,
     }
 
     /* ---- Update BDS states ---- */
-    updates = (th - bds_k) >> 1;
+    /* ceil((th - bds_k) / 2): must round up to avoid starving high
+     * treehash instances when (th - bds_k) is odd. */
+    updates = (th - bds_k + 1) >> 1;
 
     /* Mandatory update for NEXT_0 (layer 0 next tree) */
     idx_tree = idx >> th;
