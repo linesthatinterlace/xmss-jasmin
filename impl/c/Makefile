@@ -1,9 +1,14 @@
 # Top-level wrapper around CMake.
 # The real build logic lives in CMakeLists.txt; this just provides
 # short commands for common operations.
+#
+# Build directories:
+#   build/       — Release (default, also used by Jasmin interop)
+#   build-debug/ — Debug with ASan + UBSan
+#   build-rv/    — RISC-V cross-compile
 
-BUILD     := build-rel
-BUILD_DBG := build
+BUILD     := build
+BUILD_DBG := build-debug
 BUILD_RV  := build-rv
 
 .PHONY: all debug test test-fast clean rv help
@@ -37,9 +42,9 @@ clean:
 
 help:
 	@echo "Available targets:"
-	@echo "  make            Release build"
+	@echo "  make            Release build (build/)"
 	@echo "  make test       Build + run all tests"
 	@echo "  make test-fast  Build + run fast tests only (uses CTest label 'fast')"
-	@echo "  make debug      Debug build with ASan + UBSan"
-	@echo "  make rv         RISC-V cross-compile"
+	@echo "  make debug      Debug build with ASan + UBSan (build-debug/)"
+	@echo "  make rv         RISC-V cross-compile (build-rv/)"
 	@echo "  make clean      Remove all build directories"

@@ -73,16 +73,22 @@ This analysis is a prerequisite to any work on extending or contributing to Jasm
 
 ```bash
 cd impl/jasmin
-make              # compile all tests + API binaries
-make test         # build + run 9 unit tests + 2 fast API tests + 2 KAT tests + 2 interop tests
-make test-api     # fast API tests only (h=10 XMSS + XMSS-MT 20/2)
-make test-api-slow  # slow API tests (h=16: ~20s keygen, h=20: ~4min keygen)
-make test-kat     # KAT cross-validation against xmss-reference fingerprints
-make test-interop # cross-implementation interop (C sign↔Jasmin verify, builds libxmss.a)
-make ct           # CT checks on all 14 .jazz files (9 unit + 5 API)
-make clean        # remove .s and binaries
-make test/test_X  # build a single test (e.g. test/test_xmss)
+make                    # compile all tests + API binaries → build/
+make test               # build + run 9 unit + 3 fast API + 2 KAT + 2 interop
+make test-api           # fast API tests only
+make test-api-slow      # slow API tests (h=16: ~20s keygen, h=20: ~4min keygen)
+make test-kat           # KAT cross-validation against xmss-reference fingerprints
+make test-interop       # cross-implementation interop (C sign↔Jasmin verify)
+make test-interop-deep  # deep interop (64 sigs + BDS state comparison)
+make ct                 # CT checks on all 14 .jazz files (9 unit + 5 API)
+make clean              # rm -rf build/
+
+# Run a single test binary directly
+./build/test/test_xmss
+./build/test/test_api_xmss_sha2_10_256
 ```
+
+All generated files (`.s` assemblies, test binaries) go in `build/`. Source directories stay clean.
 
 The Makefile uses conservative dependency tracking: all `.jinc` files are deps of every `.jazz` → `.s` rule (jasminc has no `-MMD`).
 
@@ -94,25 +100,29 @@ impl/jasmin/
   SPEC.md              Implementation specification (design decisions, data layouts, security properties)
   SKILL.md              Jasmin language reference, pitfalls, patterns
   Makefile
-  api/                  Production .jazz files with libjade naming
+  api/                  Production .jazz source files with libjade naming
     xmss_sha2_10_256.jazz     XMSS-SHA2_10_256 (h=10, OID=1)
     xmss_sha2_16_256.jazz     XMSS-SHA2_16_256 (h=16, OID=2)
     xmss_sha2_20_256.jazz     XMSS-SHA2_20_256 (h=20, OID=3)
     xmssmt_sha2_20_2_256.jazz XMSSMT-SHA2_20/2_256 (D=2, h=10, OID=1)
     xmssmt_sha2_20_4_256.jazz XMSSMT-SHA2_20/4_256 (D=4, h=5, OID=2)
+  build/                Generated files (gitignored)
+    api/*.s             Compiled API assembly
+    test/*.s            Compiled unit test assembly
+    test/test_*         Linked test binaries
   include/
     jade_sign_xmss.h   C header with buffer sizes and extern declarations
   src/
     hash/
-      sha256_n32.jinc   SHA-256 backend (N=32) — DONE
-    address.jinc        ADRS type and setters — DONE
-    utils.jinc          ull_to_bytes, bytes_to_ull, ct_memcmp, memzero — DONE
-    wots.jinc           WOTS+ gen_pk, sign, pk_from_sig — DONE
-    ltree.jinc          L-tree hash — DONE
-    treehash.jinc       treehash and compute_root — DONE
-    bds.jinc            BDS state management (incl. bds_state_update for XMSS-MT) — DONE
-    xmss.jinc           XMSS keygen/sign/verify — DONE
-    xmssmt.jinc         XMSS-MT keygen/sign/verify — DONE
+      sha256_n32.jinc   SHA-256 backend (N=32)
+    address.jinc        ADRS type and setters
+    utils.jinc          ull_to_bytes, bytes_to_ull, ct_memcmp, memzero
+    wots.jinc           WOTS+ gen_pk, sign, pk_from_sig
+    ltree.jinc          L-tree hash
+    treehash.jinc       treehash and compute_root
+    bds.jinc            BDS state management (incl. bds_state_update for XMSS-MT)
+    xmss.jinc           XMSS keygen/sign/verify
+    xmssmt.jinc         XMSS-MT keygen/sign/verify
   test/
     test_*.jazz         Jasmin unit test wrappers (export fn for C harness)
     test_*.c            C unit test harnesses

@@ -60,8 +60,8 @@ jobs:
       - name: Build C library
         working-directory: impl/c
         run: |
-          cmake -B build-rel -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-rel --target xmss
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target xmss
 
       - name: Compile Jasmin
         run: opam exec -- make -j$(nproc)
@@ -73,12 +73,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jasmin-test-binaries
-          path: |
-            impl/jasmin/test/test_*
-            !impl/jasmin/test/*.c
-            !impl/jasmin/test/*.h
-            !impl/jasmin/test/*.jazz
-            !impl/jasmin/test/*.s
+          path: impl/jasmin/build/test/
           retention-days: 1
 
   # Parallel test jobs — no OCaml needed, just run the pre-built binaries
@@ -91,19 +86,20 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: jasmin-test-binaries
+          path: bin
 
       - name: Unit tests (9 tests)
         run: |
-          chmod +x impl/jasmin/test/test_*
-          impl/jasmin/test/test_address
-          impl/jasmin/test/test_utils
-          impl/jasmin/test/test_sha256
-          impl/jasmin/test/test_wots
-          impl/jasmin/test/test_ltree
-          impl/jasmin/test/test_treehash
-          impl/jasmin/test/test_bds
-          impl/jasmin/test/test_xmss
-          impl/jasmin/test/test_xmssmt
+          chmod +x bin/*
+          bin/test_address
+          bin/test_utils
+          bin/test_sha256
+          bin/test_wots
+          bin/test_ltree
+          bin/test_treehash
+          bin/test_bds
+          bin/test_xmss
+          bin/test_xmssmt
 
   jasmin-api:
     name: jasmin-api
@@ -114,18 +110,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: jasmin-test-binaries
+          path: bin
 
       - name: API tests (fast — h=10, MT 20/2, MT 20/4)
         run: |
-          chmod +x impl/jasmin/test/test_*
-          impl/jasmin/test/test_api_xmss_sha2_10_256
-          impl/jasmin/test/test_api_xmssmt_sha2_20_2_256
-          impl/jasmin/test/test_api_xmssmt_sha2_20_4_256
+          chmod +x bin/*
+          bin/test_api_xmss_sha2_10_256
+          bin/test_api_xmssmt_sha2_20_2_256
+          bin/test_api_xmssmt_sha2_20_4_256
 
       - name: API tests (slow — h=16, h=20)
         run: |
-          impl/jasmin/test/test_api_xmss_sha2_16_256
-          impl/jasmin/test/test_api_xmss_sha2_20_256
+          bin/test_api_xmss_sha2_16_256
+          bin/test_api_xmss_sha2_20_256
 
   jasmin-interop:
     name: jasmin-interop
@@ -136,17 +133,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: jasmin-test-binaries
+          path: bin
 
       - name: Interop tests (shallow)
         run: |
-          chmod +x impl/jasmin/test/test_*
-          impl/jasmin/test/test_interop_xmss_sha2_10_256
-          impl/jasmin/test/test_interop_xmssmt_sha2_20_2_256
+          chmod +x bin/*
+          bin/test_interop_xmss_sha2_10_256
+          bin/test_interop_xmssmt_sha2_20_2_256
 
       - name: Deep interop (64 sigs + BDS state comparison)
-        run: impl/jasmin/test/test_interop_deep_xmss_sha2_10_256
+        run: bin/test_interop_deep_xmss_sha2_10_256
 
       - name: KAT tests
         run: |
-          impl/jasmin/test/test_kat_xmss_sha2_10_256
-          impl/jasmin/test/test_kat_xmssmt_sha2_20_2_256
+          bin/test_kat_xmss_sha2_10_256
+          bin/test_kat_xmssmt_sha2_20_2_256

@@ -55,23 +55,23 @@ jobs:
       - name: Build C library
         working-directory: impl/c
         run: |
-          cmake -B build-rel -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-rel --target xmss
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target xmss
 
       - name: Compile
         run: opam exec -- make -j$(nproc)
 
       - name: Deep interop (64 sigs + BDS state comparison)
-        run: ./test/test_interop_deep_xmss_sha2_10_256
+        run: ./build/test/test_interop_deep_xmss_sha2_10_256
 
       - name: Slow API tests (h=16, h=20)
         run: |
-          ./test/test_api_xmss_sha2_16_256
-          ./test/test_api_xmss_sha2_20_256
+          ./build/test/test_api_xmss_sha2_16_256
+          ./build/test/test_api_xmss_sha2_20_256
         timeout-minutes: 15
 
       - name: Boundary tests (verify every signature)
         run: |
-          ./test/test_api_xmssmt_sha2_20_2_256
-          ./test/test_api_xmssmt_sha2_20_4_256
+          ./build/test/test_api_xmssmt_sha2_20_2_256
+          ./build/test/test_api_xmssmt_sha2_20_4_256
         timeout-minutes: 30
