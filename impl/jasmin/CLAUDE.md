@@ -189,20 +189,6 @@ These parallel the C implementation's J1–J8 rules:
 - formosa-crypto organisation: https://github.com/formosa-crypto
 - **formosa-xmss**: https://github.com/formosa-crypto/formosa-xmss — a human-authored Jasmin implementation of XMSS, subject to active research. Scope and parameter coverage TBD. **Do not treat as a template or copy from it** — our implementation is independent — but it is prior art worth being aware of and potentially cross-validating against.
 
-## Known issues
-
-### BDS auth path bug with TREE_HEIGHT=5 (XMSSMT-SHA2_20/4_256)
-
-Jasmin BDS produces wrong auth paths starting at leaf index 16 when TREE_HEIGHT=5, BDS_K=2. Keygen, basic sign/verify (indices 0-15), and sequential signing all pass. Verification fails from idx=16 onward (after bds_round(15) updates auth[0..3] from treehash nodes and retain).
-
-**Facts:**
-- The C implementation passes all indices for the same parameter set (confirmed).
-- One bug was found and fixed: `__bds_treehash_init` and `__bds_state_update` used separate `if` blocks for auth/treehash/retain capture. The C code uses `else if` chains, making them mutually exclusive. Fixed by adding `else` to nest treehash+retain inside the auth `else` branch.
-- The `else if` fix is correct but does not resolve the idx=16 failure. The root cause is still in `bds.jinc`, somewhere in the bds_round or treehash_update logic for small TREE_HEIGHT values.
-- The boundary test for 20/4 is disabled in the test file until this is fixed.
-
-**To debug:** Methodically compare C `bds_round` + `bds_treehash_update` + `treehash_update_one` against the Jasmin equivalents for TREE_HEIGHT=5, focusing on the state transitions between idx=15 and idx=16 (tau=4 at bds_round(15)).
-
 ## WWW/EBI
 
 Principles, not recipes. Code-level patterns live in `SKILL.md`.
@@ -236,6 +222,8 @@ Principles, not recipes. Code-level patterns live in `SKILL.md`.
 - **Surface runtime cost early when adding test targets.** h=16 keygen takes ~40s (×2 for determinism), h=20 takes ~8min (×2). These costs should be estimated and communicated *before* wiring tests into `make test`, not discovered when the user watches a hanging build. Split fast/slow targets from the start; don't assume all parameter sets have similar runtime.
 - **Think through dependency scope before adding one.** Adding `needs: native` to the jasmin job blocked everything (unit tests, CT checks) when only the interop tests actually depended on C correctness. Map out which steps have the dependency before wiring it in — over-broad dependencies waste CI time on every push.
 - **Consider CI cost at design time, not after the first run.** Parallel compilation (`make -j`) halved the jasmin job from 17 min to 8.5 min; `paths-ignore` for docs avoids unnecessary runs entirely. These are standard CI patterns that should be part of the initial job design, not afterthoughts prompted by watching a slow run.
+- **Be sceptical of "X passes" claims — verify the test covers the exact parameter combination and depth.** The BDS treehash starvation bug (H=5, K=2) survived because a previous session recorded "the C passes" in CLAUDE.md based on tests that used bds_k=0 or only signed 1 message. Wide test suites create a false sense of coverage when they're shallow. The fix: test every parameter set through at least one full tree boundary, and treat any claim of correctness as unverified unless it points to a specific test.
+- **Jasmin's monomorphic compilation is a testing advantage, not just a constraint.** Each `.jazz` file bakes in one (H, K) combination. Unlike C where a test can accidentally dodge a bug by passing a different bds_k, Jasmin tests are forced through the exact production path. When a Jasmin test fails and the C test "passes", check whether they're actually testing the same parameters.
 
 ## What's next
 

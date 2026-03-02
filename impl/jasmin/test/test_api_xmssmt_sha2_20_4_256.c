@@ -14,9 +14,6 @@
 #define XMSSMT_FN_SIGN     jade_sign_xmssmt_sha2_20_4_256_amd64_ref
 #define XMSSMT_FN_OPEN     jade_sign_xmssmt_sha2_20_4_256_amd64_ref_open
 
-/* TODO: Enable once BDS auth path bug for TREE_HEIGHT=5 is fixed.
- * See CLAUDE.md "Known issues" for details.
- * #define XMSSMT_TEST_BOUNDARY
- */
+#define XMSSMT_TEST_BOUNDARY
 
 #include "test_api_xmssmt_common.h"

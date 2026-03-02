@@ -51,6 +51,26 @@ WWW/EBI (What Went Well / Even Better If) is a reflective evaluation framework. 
 - Anti-pattern: "Use X pattern to fix Y error" (recipe). Better: "Identify the root constraint before attempting fixes" (principle).
 - When a session produces both a process insight and a code pattern, put the process insight in WWW/EBI and the code pattern in the language reference.
 
+## Test coverage gaps
+
+The current test suite is wide (many parameter sets, many features) but shallow (1-5 signatures per set). The BDS algorithm's complexity lives in state machine transitions over dozens of signatures. A ceiling-vs-floor division bug in the treehash update count survived because no test exercised (H=5, K=2, ≥16 signatures) — each axis was tested in isolation but never together.
+
+### What we need
+
+1. **Every (H, K) combination through a full tree boundary.** Not just 1-signature smoke tests. Any parameter set where `(H - K)` is odd is a candidate for update budget bugs. At minimum: sign and verify every index from 0 to 2^H for each parameter set. The C tests should test both bds_k=0 and bds_k=2 for parameter sets where H is small enough to be practical.
+
+2. **BDS state comparison between C and Jasmin.** Currently interop tests verify 1 signature. A state divergence after 5+ signatures is invisible. Add a test that signs N messages with both implementations from the same seed and compares the BDS state byte-for-byte after each signature.
+
+3. **Intermediate BDS state assertions.** We only test final output (does verify pass?). If treehash nodes or retain nodes are wrong but haven't been consumed yet, we don't know. Add tests that dump and compare treehash[i].node, retain[i], and auth[i] against known-good values at key indices (especially at high-tau events like idx=2^k - 1).
+
+4. **Treehash completion invariant check.** Before bds_round reads th[i].node, assert `th[i].completed == 1`. This is the invariant the algorithm relies on but never checks. A debug-mode assertion here would have caught this bug immediately.
+
+5. **BDS exhaustion edge cases.** What happens when `startidx >= 1 << H` during treehash reinit? The guard exists in both implementations but is untested. Test the last few signatures in a tree where some treehash instances can't be reinitialised.
+
+### Priority
+
+Items 1 and 4 are highest priority — they directly prevent recurrence of the class of bug we just found. Item 2 is the strongest cross-implementation check. Items 3 and 5 are hardening.
+
 ## Cross-cutting rules
 
 These apply to ALL implementations regardless of language:
