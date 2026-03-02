@@ -30,14 +30,18 @@ jobs:
       - name: Build
         run: cmake --build build
 
-      - name: Fast tests
+      - name: Fast tests (Tier 1)
         run: ctest --test-dir build --output-on-failure -L fast
 
-      - name: Full tests
-        run: ctest --test-dir build --output-on-failure
+      - name: Core tests (Tier 2)
+        run: ctest --test-dir build --output-on-failure -L core
 
-  jasmin:
-    name: jasmin
+      - name: Deep tests (Tier 3)
+        run: ctest --test-dir build --output-on-failure -L deep
+
+  # Jasmin: build + CT checks (needs jasminc/jasmin-ct)
+  jasmin-build:
+    name: jasmin-build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -59,44 +63,90 @@ jobs:
           cmake -B build-rel -DCMAKE_BUILD_TYPE=Release
           cmake --build build-rel --target xmss
 
-      - name: Compile
+      - name: Compile Jasmin
         run: opam exec -- make -j$(nproc)
-
-      - name: Unit tests
-        run: |
-          ./test/test_address
-          ./test/test_utils
-          ./test/test_sha256
-          ./test/test_wots
-          ./test/test_ltree
-          ./test/test_treehash
-          ./test/test_bds
-          ./test/test_xmss
-          ./test/test_xmssmt
-
-      - name: API tests (fast)
-        run: |
-          ./test/test_api_xmss_sha2_10_256
-          ./test/test_api_xmssmt_sha2_20_2_256
-          ./test/test_api_xmssmt_sha2_20_4_256
-
-      - name: KAT tests
-        run: |
-          ./test/test_kat_xmss_sha2_10_256
-          ./test/test_kat_xmssmt_sha2_20_2_256
-
-      - name: Interop tests
-        run: |
-          ./test/test_interop_xmss_sha2_10_256
-          ./test/test_interop_xmssmt_sha2_20_2_256
-
-      - name: Deep interop tests
-        run: ./test/test_interop_deep_xmss_sha2_10_256
-
-      - name: API tests (slow)
-        run: |
-          ./test/test_api_xmss_sha2_16_256
-          ./test/test_api_xmss_sha2_20_256
 
       - name: CT checks
         run: opam exec -- make ct
+
+      - name: Upload test binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: jasmin-test-binaries
+          path: |
+            impl/jasmin/test/test_*
+            !impl/jasmin/test/*.c
+            !impl/jasmin/test/*.h
+            !impl/jasmin/test/*.jazz
+            !impl/jasmin/test/*.s
+          retention-days: 1
+
+  # Parallel test jobs — no OCaml needed, just run the pre-built binaries
+  jasmin-unit:
+    name: jasmin-unit
+    needs: jasmin-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download test binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: jasmin-test-binaries
+
+      - name: Unit tests (9 tests)
+        run: |
+          chmod +x impl/jasmin/test/test_*
+          impl/jasmin/test/test_address
+          impl/jasmin/test/test_utils
+          impl/jasmin/test/test_sha256
+          impl/jasmin/test/test_wots
+          impl/jasmin/test/test_ltree
+          impl/jasmin/test/test_treehash
+          impl/jasmin/test/test_bds
+          impl/jasmin/test/test_xmss
+          impl/jasmin/test/test_xmssmt
+
+  jasmin-api:
+    name: jasmin-api
+    needs: jasmin-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download test binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: jasmin-test-binaries
+
+      - name: API tests (fast — h=10, MT 20/2, MT 20/4)
+        run: |
+          chmod +x impl/jasmin/test/test_*
+          impl/jasmin/test/test_api_xmss_sha2_10_256
+          impl/jasmin/test/test_api_xmssmt_sha2_20_2_256
+          impl/jasmin/test/test_api_xmssmt_sha2_20_4_256
+
+      - name: API tests (slow — h=16, h=20)
+        run: |
+          impl/jasmin/test/test_api_xmss_sha2_16_256
+          impl/jasmin/test/test_api_xmss_sha2_20_256
+
+  jasmin-interop:
+    name: jasmin-interop
+    needs: jasmin-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download test binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: jasmin-test-binaries
+
+      - name: Interop tests (shallow)
+        run: |
+          chmod +x impl/jasmin/test/test_*
+          impl/jasmin/test/test_interop_xmss_sha2_10_256
+          impl/jasmin/test/test_interop_xmssmt_sha2_20_2_256
+
+      - name: Deep interop (64 sigs + BDS state comparison)
+        run: impl/jasmin/test/test_interop_deep_xmss_sha2_10_256
+
+      - name: KAT tests
+        run: |
+          impl/jasmin/test/test_kat_xmss_sha2_10_256
+          impl/jasmin/test/test_kat_xmssmt_sha2_20_2_256
