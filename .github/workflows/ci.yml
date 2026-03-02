@@ -90,5 +90,13 @@ jobs:
           ./test/test_interop_xmss_sha2_10_256
           ./test/test_interop_xmssmt_sha2_20_2_256
 
+      - name: Deep interop tests
+        run: ./test/test_interop_deep_xmss_sha2_10_256
+
+      - name: API tests (slow)
+        run: |
+          ./test/test_api_xmss_sha2_16_256
+          ./test/test_api_xmss_sha2_20_256
+
       - name: CT checks
         run: opam exec -- make ct

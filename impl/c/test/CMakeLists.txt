@@ -31,6 +31,7 @@ add_xmss_test(test_xmss)
 add_xmss_test(test_xmss_kat)
 add_xmss_test(test_bds)
 add_xmss_test(test_bds_serial)
+add_xmss_test(test_bds_exhaustive)
 add_xmss_test(test_xmss_mt)
 add_xmss_test(test_xmss_mt_kat     ${CMAKE_SOURCE_DIR}/src/hash)
 add_xmss_test(test_xmss_acvp_kat)
@@ -40,6 +41,10 @@ set_tests_properties(
     test_xmss_acvp_kat
     PROPERTIES LABELS "slow"
 )
+
+# The exhaustive BDS test has fast H=5 subtests and slow H=10 subtests.
+# Label it "slow" overall; the H=5 portion completes in <5s.
+set_tests_properties(test_bds_exhaustive PROPERTIES LABELS "slow")
 
 # Timeouts: generous limits to catch hangs without breaking slow runs.
 # Fast tests should finish in well under 30 s; slow tests under 5 min.
@@ -57,6 +62,6 @@ set_tests_properties(
     PROPERTIES TIMEOUT ${SLOW_TIMEOUT}
 )
 set_tests_properties(
-    test_xmss_kat test_xmss_mt
+    test_xmss_kat test_xmss_mt test_bds_exhaustive
     PROPERTIES TIMEOUT ${VERY_SLOW_TIMEOUT}
 )

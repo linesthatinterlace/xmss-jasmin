@@ -49,14 +49,17 @@ KAT_TESTS := test/test_kat_xmss_sha2_10_256 \
 INTEROP_TESTS := test/test_interop_xmss_sha2_10_256 \
                  test/test_interop_xmssmt_sha2_20_2_256
 
+# Deep interop: signs N messages with both C and Jasmin, compares every sig
+INTEROP_DEEP_TESTS := test/test_interop_deep_xmss_sha2_10_256
+
 # Prevent Make from deleting .s files as intermediates
 .PRECIOUS: $(ASM) $(API_ASM)
 
 JASMIN_CT := jasmin-ct
 
-.PHONY: all test test-api test-api-slow test-kat test-interop ct clean
+.PHONY: all test test-api test-api-slow test-kat test-interop test-interop-deep ct clean
 
-all: $(TESTS) $(API_TESTS) $(KAT_TESTS) $(INTEROP_TESTS)
+all: $(TESTS) $(API_TESTS) $(KAT_TESTS) $(INTEROP_TESTS) $(INTEROP_DEEP_TESTS)
 
 # Default test target: unit tests + fast API tests + KAT tests + interop tests
 test: $(TESTS) $(API_TESTS_FAST) $(KAT_TESTS) $(INTEROP_TESTS)
@@ -146,9 +149,20 @@ test/test_interop_xmss_sha2_10_256: test/test_interop_xmss_sha2_10_256.c api/xms
 test/test_interop_xmssmt_sha2_20_2_256: test/test_interop_xmssmt_sha2_20_2_256.c api/xmssmt_sha2_20_2_256.s $(C_LIB)
 	$(CC) -o $@ test/test_interop_xmssmt_sha2_20_2_256.c api/xmssmt_sha2_20_2_256.s $(C_LIB) -I$(C_IMPL)/include $(CFLAGS)
 
+# Deep interop tests
+test/test_interop_deep_xmss_sha2_10_256: test/test_interop_deep_xmss_sha2_10_256.c api/xmss_sha2_10_256.s $(C_LIB)
+	$(CC) -o $@ test/test_interop_deep_xmss_sha2_10_256.c api/xmss_sha2_10_256.s $(C_LIB) -I$(C_IMPL)/include $(CFLAGS)
+
 # Cross-implementation interop tests only
 test-interop: $(INTEROP_TESTS)
 	@for t in $(INTEROP_TESTS); do \
+		echo "=== $$t ==="; \
+		./$$t || exit 1; \
+	done
+
+# Deep interop tests (N signatures, byte-for-byte sig comparison)
+test-interop-deep: $(INTEROP_DEEP_TESTS)
+	@for t in $(INTEROP_DEEP_TESTS); do \
 		echo "=== $$t ==="; \
 		./$$t || exit 1; \
 	done
@@ -161,4 +175,4 @@ test/test_kat_xmssmt_sha2_20_2_256: test/test_kat_xmssmt_sha2_20_2_256.c api/xms
 	$(CC) -o $@ test/test_kat_xmssmt_sha2_20_2_256.c api/xmssmt_sha2_20_2_256.s $(SHAKE_LOCAL_C) -I$(C_IMPL)/src/hash $(CFLAGS)
 
 clean:
-	rm -f $(ASM) $(TESTS) $(API_ASM) $(API_TESTS) $(KAT_TESTS) $(INTEROP_TESTS)
+	rm -f $(ASM) $(TESTS) $(API_ASM) $(API_TESTS) $(KAT_TESTS) $(INTEROP_TESTS) $(INTEROP_DEEP_TESTS)

@@ -9,6 +9,7 @@
  */
 #include <string.h>
 #include <stdint.h>
+#include <assert.h>
 
 #include "bds.h"
 #include "wots.h"
@@ -234,6 +235,13 @@ void bds_round(const xmss_params *p, xmss_bds_state *state,
         /* Fill auth[0..tau-1] from treehash nodes or retain */
         for (i = 0; i < tau; i++) {
             if (i < p->tree_height - bds_k) {
+                /* BDS invariant: treehash[i] must be completed before we
+                 * consume its node.  A violation here means the update budget
+                 * was insufficient — the exact class of bug that floor-vs-ceil
+                 * division causes (e.g. h=5, k=2). */
+                assert(state->treehash[i].completed &&
+                       "BDS invariant violated: treehash[i] not completed "
+                       "before node consumed in bds_round");
                 memcpy(state->auth[i], state->treehash[i].node, p->n);
             } else {
                 uint32_t off = ((uint32_t)1 << (p->tree_height - 1 - i)) + i - p->tree_height;
