@@ -81,11 +81,9 @@ A ceiling-vs-floor division bug in the BDS treehash update budget survived becau
 
 5. **Three-tier C test labelling**: `ctest -L fast` (seconds), `ctest -L core` (<5 min), `ctest -L deep` (5-15 min). CI runs all three tiers sequentially — a BDS bug in H=5 fails in Tier 2 within seconds.
 
-### Remaining gaps
+### Notes
 
-- **Golden BDS state snapshots**: Pre-computed expected state at high-tau indices (idx=15, 16, 31 for H=5 K=2). Would catch subtle state differences that don't affect signatures. Low priority — the deep interop state comparison catches the same class of bugs more maintainably.
-
-- **Endianness note for cross-implementation state comparison**: C serializes integers big-endian; Jasmin stores them little-endian (native). The deep interop test handles this by byte-swapping the Jasmin buffer's integer fields (stack_offset, treehash[i].h, treehash[i].next_idx, next_leaf) before comparing. If the Jasmin layout changes, update the `jasmin_state_to_be()` function in the deep interop test.
+- **Endianness for cross-implementation state comparison**: C serializes integers big-endian; Jasmin stores them little-endian (native). The deep interop test handles this by byte-swapping the Jasmin buffer's integer fields (stack_offset, treehash[i].h, treehash[i].next_idx, next_leaf) before comparing. If the Jasmin layout changes, update the `jasmin_state_to_be()` function in the deep interop test.
 
 ## Cross-cutting rules
 

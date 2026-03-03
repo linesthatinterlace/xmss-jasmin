@@ -242,8 +242,8 @@ See `SPEC.md` for foundational design decisions (D1–D6) relevant to code revie
 ### Remaining work
 
 - [x] **CI integration**: Jasmin job in `.github/workflows/ci.yml` (unit, API, KAT, interop, CT).
+- [x] **XMSS-MT parameter sets**: d=2 and d=4 `.jazz` files (all RFC 8391 SHA2-256 sets covered).
 - [ ] **Code review**: Full review of all Jasmin code.
-- [ ] **Additional XMSS-MT parameter sets**: d=4 `.jazz` file (d=8 doesn't divide h=20; only d=2 and d=4 exist for h=20 in RFC 8391).
 - [ ] **SHA-512 backend** (`src/hash/sha512_n64.jinc`)
 - [ ] **SHAKE-128/256 backends**
 
