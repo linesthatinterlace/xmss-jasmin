@@ -7,18 +7,18 @@ Context for Claude Code when working on the C implementation of XMSS/XMSS-MT. Al
 The `Makefile` wraps CMake for convenience:
 
 ```bash
-make            # Release build
+make            # Release build → build/
 make test       # Build + run all tests (~2 min)
 make test-fast  # Build + run only fast tests (CTest label "fast")
-make debug      # Debug build (ASan + UBSan — very slow for crypto tests)
-make rv         # RISC-V cross-compile
+make debug      # Debug build (ASan + UBSan) → build-debug/
+make rv         # RISC-V cross-compile → build-rv/
 make clean      # Remove all build directories
 
 # Run a single test binary directly
-./build-rel/test/test_params
-./build-rel/test/test_xmss   # BDS keygen/sign/verify roundtrip + sequential
-./build-rel/test/test_xmss_kat    # KAT cross-validation (advances BDS to idx=512)
-./build-rel/test/test_bds    # BDS-specific: bds_k validation, k=2/k=4 roundtrips
+./build/test/test_params
+./build/test/test_xmss        # BDS keygen/sign/verify roundtrip + sequential
+./build/test/test_xmss_kat    # KAT cross-validation (advances BDS to idx=512)
+./build/test/test_bds          # BDS-specific: bds_k validation, k=2/k=4 roundtrips
 
 # RISC-V execution via QEMU
 qemu-riscv64 -L /usr/riscv64-linux-gnu build-rv/test/test_params

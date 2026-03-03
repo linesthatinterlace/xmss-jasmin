@@ -1,7 +1,6 @@
 # Build directories (per-implementation)
 **/build/
-**/build-rel/
-**/build-rv/
+**/build-*/
 
 # Build artefacts
 *.o

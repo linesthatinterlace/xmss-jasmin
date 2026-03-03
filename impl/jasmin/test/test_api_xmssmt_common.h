@@ -350,16 +350,16 @@ static int test_boundary_crossing(void) {
             return 0;
         }
 
-        if (i == 0 || i == boundary - 2 || i == boundary - 1 ||
-            i == boundary) {
-            memset(verify_scratch, 0, _VERIFY_SCRATCH);
-            ret = XMSSMT_FN_OPEN(msg, sizeof(msg), sig, pk, verify_scratch);
-            if (ret != 0) {
-                printf("\n  FAIL: verify at idx=%d returned %lu\n",
-                       i, (unsigned long)ret);
-                pass = 0;
-                break;
-            }
+        /* Verify EVERY signature — not just boundary indices.
+         * BDS state divergence can happen at any index; spot-checking
+         * only a few indices gives false confidence. */
+        memset(verify_scratch, 0, _VERIFY_SCRATCH);
+        ret = XMSSMT_FN_OPEN(msg, sizeof(msg), sig, pk, verify_scratch);
+        if (ret != 0) {
+            printf("\n  FAIL: verify at idx=%d returned %lu\n",
+                   i, (unsigned long)ret);
+            pass = 0;
+            break;
         }
 
         if (i > 0 && (i % 256) == 0) {

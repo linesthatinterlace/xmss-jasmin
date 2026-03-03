@@ -20,10 +20,21 @@ Read the CLAUDE.md in the relevant implementation directory for build commands, 
 
 GitHub Actions CI runs on every push and PR:
 
-- **`ci.yml`**: gcc and clang (native, `-Werror`), all 12 C tests (~4 min each). Jasmin job: installs jasminc via opam, runs 9 unit tests + 2 fast API + 2 KAT + 2 interop + CT checks (~17 min).
-- **`riscv.yml`**: RISC-V cross-compile + QEMU (fast tests + sign/verify roundtrips). Weekly + manual trigger.
+- **`ci.yml`** (every push/PR, ~10 min):
+  - **C (native)**: gcc + clang (`-Werror`), three-tier test organisation:
+    - Tier 1 "fast" (< 30s): params, address, hash, wots, utils — fail fast.
+    - Tier 2 "core" (< 5 min): sign/verify roundtrips, BDS serial, BDS exhaustive (H=5+H=10), XMSS-MT boundary.
+    - Tier 3 "deep" (5-15 min): KAT (512 sigs), XMSS-MT KAT, ACVP cross-checks.
+  - **Jasmin**: build job (compile + CT checks) → three parallel test jobs via artifact sharing:
+    - `jasmin-unit`: 9 unit tests (seconds)
+    - `jasmin-api`: h=10, MT 20/2, MT 20/4 (~1 min)
+    - `jasmin-interop`: shallow + deep interop (64 sigs + BDS state comparison) + KAT
+- **`ci-scheduled.yml`** (spaced across the week + manual trigger):
+  - **Sunday 04:00 UTC**: C exhaustive BDS (debug build, assertions enabled, all H/K combos)
+  - **Tuesday 04:00 UTC**: Jasmin slow API (h=16 ~10 min, h=20 ~3h)
+  - **Thursday 04:00 UTC**: RISC-V cross-compile + QEMU (fast tests + sign/verify roundtrips)
 
-**Prefer pushing and letting CI run the full test suite** rather than running slow tests locally. Use `make test-fast` locally for quick smoke checks, then push to get full coverage across compilers.
+**Prefer pushing and letting CI run the full test suite** rather than running slow tests locally. Use `ctest -L fast` (C) or `make test` (Jasmin) locally for quick smoke checks, then push to get full coverage across compilers.
 
 Check CI status: `gh run list` / `gh run view <id>` / `gh run watch <id>`
 
@@ -51,25 +62,30 @@ WWW/EBI (What Went Well / Even Better If) is a reflective evaluation framework. 
 - Anti-pattern: "Use X pattern to fix Y error" (recipe). Better: "Identify the root constraint before attempting fixes" (principle).
 - When a session produces both a process insight and a code pattern, put the process insight in WWW/EBI and the code pattern in the language reference.
 
-## Test coverage gaps
+## Test coverage
 
-The current test suite is wide (many parameter sets, many features) but shallow (1-5 signatures per set). The BDS algorithm's complexity lives in state machine transitions over dozens of signatures. A ceiling-vs-floor division bug in the treehash update count survived because no test exercised (H=5, K=2, ≥16 signatures) — each axis was tested in isolation but never together.
+### What's been done
 
-### What we need
+A ceiling-vs-floor division bug in the BDS treehash update budget survived because no test exercised (H=5, K=2, ≥16 signatures). The following defences are now in place:
 
-1. **Every (H, K) combination through a full tree boundary.** Not just 1-signature smoke tests. Any parameter set where `(H - K)` is odd is a candidate for update budget bugs. At minimum: sign and verify every index from 0 to 2^H for each parameter set. The C tests should test both bds_k=0 and bds_k=2 for parameter sets where H is small enough to be practical.
+1. **Treehash completion assertion** (C, `bds.c`): `assert(treehash[i].completed)` before consuming the node in `bds_round()`. Active in debug builds (`NDEBUG`), zero cost in release. Catches budget starvation at the point of corruption.
 
-2. **BDS state comparison between C and Jasmin.** Currently interop tests verify 1 signature. A state divergence after 5+ signatures is invisible. Add a test that signs N messages with both implementations from the same seed and compares the BDS state byte-for-byte after each signature.
+2. **Exhaustive (H, K) matrix** (C, `test_bds_exhaustive.c`): Signs and verifies EVERY index through a full tree for 6 (H, K) combos — H=5 K=0/2/4 (32 sigs each, <1s) and H=10 K=0/2/4 (1024 sigs each, ~2-4 min). Includes post-sign BDS state validation and key exhaustion checks.
 
-3. **Intermediate BDS state assertions.** We only test final output (does verify pass?). If treehash nodes or retain nodes are wrong but haven't been consumed yet, we don't know. Add tests that dump and compare treehash[i].node, retain[i], and auth[i] against known-good values at key indices (especially at high-tau events like idx=2^k - 1).
+3. **Deep cross-implementation interop** (Jasmin, `test_interop_deep_xmss_sha2_10_256.c`): Signs 64 messages with both C and Jasmin from the same seed. After EACH signature, compares:
+   - Signatures byte-for-byte (auth path divergence = BDS state bug)
+   - BDS state byte-for-byte (C serialized vs Jasmin flat buffer, with LE→BE integer conversion)
+   - Treehash completion invariants on the Jasmin state (next_idx bounds, target height, stack_offset)
 
-4. **Treehash completion invariant check.** Before bds_round reads th[i].node, assert `th[i].completed == 1`. This is the invariant the algorithm relies on but never checks. A debug-mode assertion here would have caught this bug immediately.
+4. **Boundary test verification** (Jasmin, `test_api_xmssmt_common.h`): XMSS-MT 20/4 boundary test now verifies EVERY signature through the tree boundary, not just 4 spot-check indices.
 
-5. **BDS exhaustion edge cases.** What happens when `startidx >= 1 << H` during treehash reinit? The guard exists in both implementations but is untested. Test the last few signatures in a tree where some treehash instances can't be reinitialised.
+5. **Three-tier C test labelling**: `ctest -L fast` (seconds), `ctest -L core` (<5 min), `ctest -L deep` (5-15 min). CI runs all three tiers sequentially — a BDS bug in H=5 fails in Tier 2 within seconds.
 
-### Priority
+### Remaining gaps
 
-Items 1 and 4 are highest priority — they directly prevent recurrence of the class of bug we just found. Item 2 is the strongest cross-implementation check. Items 3 and 5 are hardening.
+- **Golden BDS state snapshots**: Pre-computed expected state at high-tau indices (idx=15, 16, 31 for H=5 K=2). Would catch subtle state differences that don't affect signatures. Low priority — the deep interop state comparison catches the same class of bugs more maintainably.
+
+- **Endianness note for cross-implementation state comparison**: C serializes integers big-endian; Jasmin stores them little-endian (native). The deep interop test handles this by byte-swapping the Jasmin buffer's integer fields (stack_offset, treehash[i].h, treehash[i].next_idx, next_leaf) before comparing. If the Jasmin layout changes, update the `jasmin_state_to_be()` function in the deep interop test.
 
 ## Cross-cutting rules
 
