@@ -457,7 +457,12 @@ int main(void)
     /* ---- Cross-verify: C sig verified by Jasmin and vice versa ---- */
     printf("\n--- Cross-verification at final state ---\n");
     {
-        uint8_t msg_final[4] = {0xFF, 0xFE, 0xFD, 0xFC};
+        uint8_t msg_final[4] = {
+            (uint8_t)((NUM_SIGS - 1) >> 0),
+            (uint8_t)((NUM_SIGS - 1) >> 8),
+            (uint8_t)((NUM_SIGS - 1) >> 16),
+            (uint8_t)((NUM_SIGS - 1) >> 24),
+        };
 
         memset(scratch, 0, J_SCRATCH_BYTES);
         jret = jade_sign_xmss_sha2_10_256_amd64_ref_open(
