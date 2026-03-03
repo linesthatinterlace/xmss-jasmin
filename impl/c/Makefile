@@ -33,7 +33,7 @@ test-fast: all
 
 # RISC-V cross-compile
 rv:
-	cmake -B $(BUILD_RV) -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-riscv64.cmake -DCMAKE_BUILD_TYPE=Release
+	cmake -B $(BUILD_RV) -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-riscv64.cmake -DCMAKE_BUILD_TYPE=Release -DXMSS_WERROR=ON
 	cmake --build $(BUILD_RV)
 
 # Remove all build directories
