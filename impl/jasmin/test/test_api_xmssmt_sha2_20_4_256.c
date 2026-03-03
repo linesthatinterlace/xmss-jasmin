@@ -3,7 +3,7 @@
 #define XMSSMT_PARAM_N           32
 #define XMSSMT_PARAM_LEN         67
 #define XMSSMT_PARAM_TREE_HEIGHT 5
-#define XMSSMT_PARAM_BDS_K      2
+#define XMSSMT_PARAM_BDS_K      0
 #define XMSSMT_PARAM_D           4
 #define XMSSMT_PARAM_FULL_H      20
 #define XMSSMT_PARAM_IDX_BYTES   3

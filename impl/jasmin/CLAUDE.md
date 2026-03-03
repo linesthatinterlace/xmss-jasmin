@@ -156,7 +156,7 @@ jade_sign_xmssmt_sha2_{h}_{d}_256_amd64_ref_*    (XMSS-MT variants)
 | XMSS-SHA2_16_256 | 0x02 | 16 | 1 | 136 | 68 | 2692 | 1957 | 2240 |
 | XMSS-SHA2_20_256 | 0x03 | 20 | 1 | 136 | 68 | 2820 | 2449 | 2240 |
 | XMSSMT-SHA2_20/2_256 | 0x01 | 10 | 2 | 135 | 68 | 4963 | 5801 | 2240 |
-| XMSSMT-SHA2_20/4_256 | 0x02 | 5 | 4 | 135 | 68 | 9251 | 10548 | 2240 |
+| XMSSMT-SHA2_20/4_256 | 0x02 | 5 | 4 | 135 | 68 | 9251 | 10912 | 2240 |
 
 Buffer sizes are defined in `include/jade_sign_xmss.h`.
 

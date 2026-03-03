@@ -639,7 +639,7 @@ fn __xmssmt_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
     }
 
     /* ---- Update BDS states ---- */
-    upd_var = (TREE_HEIGHT - BDS_K + 1) / 2;
+    upd_var = (TREE_HEIGHT - BDS_K) / 2;
     s_updates = upd_var;
 
     /* Mandatory: update NEXT_0 (layer 0 next tree = bds[D]) */

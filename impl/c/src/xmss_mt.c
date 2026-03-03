@@ -54,7 +54,10 @@ int xmss_mt_keygen(const xmss_params *p, uint8_t *pk, uint8_t *sk,
     if (p->d < 2 || p->d > XMSS_MAX_D) {
         return XMSS_ERR_PARAMS;
     }
-    if ((bds_k & 1) || bds_k > p->tree_height) {
+    /* Validate bds_k: K=0 always valid; non-zero K requires K >= 2,
+     * K < H, and (H - K) even (BDS algorithm precondition). */
+    if (bds_k != 0 && (bds_k >= p->tree_height || bds_k < 2 ||
+                        (p->tree_height - bds_k) % 2)) {
         return XMSS_ERR_PARAMS;
     }
 
@@ -206,9 +209,9 @@ int xmss_mt_sign(const xmss_params *p, uint8_t *sig,
     }
 
     /* ---- Update BDS states ---- */
-    /* ceil((th - bds_k) / 2): must round up to avoid starving high
-     * treehash instances when (th - bds_k) is odd. */
-    updates = (th - bds_k + 1) >> 1;
+    /* (th - bds_k) / 2: exact because (H - K) is guaranteed even by
+     * the bds_k validation (K=0 or (H-K) even). */
+    updates = (th - bds_k) >> 1;
 
     /* Mandatory update for NEXT_0 (layer 0 next tree) */
     idx_tree = idx >> th;
