@@ -247,16 +247,21 @@ Per RFC 8391 Appendix B.1 and C.1:
 
 All use `W=16`, `LOG2_W=4`, `PAD_LEN=N`.
 
-| Set | OID | N | W | LEN1 | LEN2 | LEN | H | D | IDX_BYTES |
-|-----|-----|---|---|------|------|-----|---|---|-----------|
-| XMSS-SHA2_10_256 | 0x01 | 32 | 16 | 64 | 3 | 67 | 10 | 1 | 4 |
-| XMSS-SHA2_16_256 | 0x02 | 32 | 16 | 64 | 3 | 67 | 16 | 1 | 4 |
-| XMSS-SHA2_20_256 | 0x03 | 32 | 16 | 64 | 3 | 67 | 20 | 1 | 4 |
-| XMSSMT-SHA2_20/2_256 | 0x01 | 32 | 16 | 64 | 3 | 67 | 20 | 2 | 3 |
+| Set | OID | N | W | LEN1 | LEN2 | LEN | H | D | TREE_HEIGHT | BDS_K | IDX_BYTES |
+|-----|-----|---|---|------|------|-----|---|---|-------------|-------|-----------|
+| XMSS-SHA2_10_256 | 0x01 | 32 | 16 | 64 | 3 | 67 | 10 | 1 | 10 | 2 | 4 |
+| XMSS-SHA2_16_256 | 0x02 | 32 | 16 | 64 | 3 | 67 | 16 | 1 | 16 | 2 | 4 |
+| XMSS-SHA2_20_256 | 0x03 | 32 | 16 | 64 | 3 | 67 | 20 | 1 | 20 | 2 | 4 |
+| XMSSMT-SHA2_20/2_256 | 0x01 | 32 | 16 | 64 | 3 | 67 | 20 | 2 | 10 | 2 | 3 |
+| XMSSMT-SHA2_20/4_256 | 0x02 | 32 | 16 | 64 | 3 | 67 | 20 | 4 | 5 | 0 | 3 |
 
-Derived values for XMSS-MT: `TREE_HEIGHT = H/D = 10`, `FULL_H = 20`.
+Derived values: `TREE_HEIGHT = H/D`, `FULL_H = H`.
 
 XMSS-MT IDX_BYTES = `ceil(h/8) = ceil(20/8) = 3`.
+
+Note on BDS_K: XMSSMT-SHA2_20/4_256 uses `BDS_K=0` because `TREE_HEIGHT=5` and BDS
+requires `(TREE_HEIGHT - BDS_K)` to be even. With `TREE_HEIGHT=5`, `BDS_K=2` would give
+odd `TREE_HEIGHT - BDS_K = 3`, violating the precondition. `BDS_K=0` is always valid.
 
 ### Buffer sizes
 
@@ -266,6 +271,7 @@ XMSS-MT IDX_BYTES = `ceil(h/8) = ceil(20/8) = 3`.
 | XMSS-SHA2_16_256 | 136 | 68 | 2692 | 1957 |
 | XMSS-SHA2_20_256 | 136 | 68 | 2820 | 2449 |
 | XMSSMT-SHA2_20/2_256 | 135 | 68 | 4963 | 5801 |
+| XMSSMT-SHA2_20/4_256 | 135 | 68 | 9251 | 10912 |
 
 Note: XMSS-MT SK is 135 bytes (not 136) because `IDX_BYTES=3` (not 4).
 
@@ -284,14 +290,15 @@ H*N                             (H/2)*N           keep[0..H/2-1]
 (H + H/2)*N                    (H+1)*N           stack[0..H] (node values)
 (H + H/2 + H+1)*N              H+1               stack_levels[0..H]
 ... + 4                         4                 stack_offset (u32)
-... + H*TH_INST_SIZE            H*TH_INST_SIZE    treehash[0..H-1]
+... + (H-K)*TH_INST_SIZE        (H-K)*TH_INST_SIZE treehash[0..H-K-1]
 ... + RETAIN_NODES*N            RETAIN_NODES*N    retain nodes
 ... + 4                         4                 next_leaf (u32)
 ```
 
 Where:
 - `TH_INST_SIZE = N + 4 + 4 + 1 + 1` (node || target_h || next_idx || stack_usage || completed)
-- `RETAIN_NODES = max(1, 2^BDS_K - BDS_K - 1)` where `BDS_K` is a compile-time parameter (even, `0 <= BDS_K <= H`)
+- `RETAIN_NODES = 2^BDS_K - BDS_K - 1` where `BDS_K` is a compile-time parameter (`BDS_K = 0` or: `BDS_K >= 2`, `BDS_K < TREE_HEIGHT`, and `(TREE_HEIGHT - BDS_K)` even)
+- For `BDS_K=0`: `RETAIN_NODES = 0` (retain array unused; retain code paths are dead)
 - For `BDS_K=2`: `RETAIN_NODES = 1`
 
 For XMSS-MT, the multi-tree state contains `D` BDS states plus per-layer
