@@ -13,7 +13,8 @@
  * the process aborts with a clear message.
  *
  * Test matrix:
- *   H=5  via XMSS-MT 20/4 (tree_height=5): K=0, K=2, K=4  — 32 sigs each
+ *   H=5  via XMSS-MT 20/4 (tree_height=5): K=0 only — 32 sigs
+ *         (K=0 is the only valid value for H=5: no even K>0 gives even H-K)
  *   H=10 via XMSS single-tree:              K=0, K=2, K=4  — 1024 sigs each
  *
  * H=5 tests are fast (<1s).  H=10 tests are slow (~2-4 min each).
@@ -220,13 +221,11 @@ int main(void)
     printf("=== test_bds_exhaustive: full (H,K) matrix ===\n");
 
     /* ---- H=5 via XMSS-MT 20/4 (tree_height=5) ---- */
-    /* These are fast: 32 sigs each, <1s */
-    /* H-K = 5 (odd), 3 (odd), 1 (odd) — all odd, maximum bug exposure */
+    /* K=0 is the only valid value for H=5: no even K>0 gives even (H-K).
+     * K=2 would give H-K=3 (odd), K=4 would give H-K=1 (odd). */
 
     printf("\n========== H=5 (XMSS-MT 20/4, tree_height=5) ==========\n");
     test_xmss_mt_full_tree(OID_XMSS_MT_SHA2_20_4_256, "XMSSMT-SHA2_20/4_256", 0);
-    test_xmss_mt_full_tree(OID_XMSS_MT_SHA2_20_4_256, "XMSSMT-SHA2_20/4_256", 2);
-    test_xmss_mt_full_tree(OID_XMSS_MT_SHA2_20_4_256, "XMSSMT-SHA2_20/4_256", 4);
 
     /* ---- H=10 via XMSS single-tree ---- */
     /* These are slow: 1024 sigs each, ~2-4 min */

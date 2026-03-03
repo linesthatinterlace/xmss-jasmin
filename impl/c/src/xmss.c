@@ -227,8 +227,10 @@ int xmss_keygen(const xmss_params *p, uint8_t *pk, uint8_t *sk,
     xmss_adrs_t adrs;
     int ret;
 
-    /* Validate bds_k */
-    if ((bds_k & 1) || bds_k > p->tree_height) {
+    /* Validate bds_k: K=0 always valid; non-zero K requires K >= 2,
+     * K < H, and (H - K) even (BDS algorithm precondition). */
+    if (bds_k != 0 && (bds_k >= p->tree_height || bds_k < 2 ||
+                        (p->tree_height - bds_k) % 2)) {
         return XMSS_ERR_PARAMS;
     }
 
@@ -332,11 +334,11 @@ int xmss_sign(const xmss_params *p, uint8_t *sig,
 
     bds_round(p, state, bds_k, (uint32_t)idx, sk_seed, pub_seed, &adrs);
 
-    /* Run treehash updates: ceil((h - bds_k) / 2) updates per signature.
-     * Must round up: floor division starves high treehash instances when
-     * (h - bds_k) is odd (e.g. h=5, k=2 → need 2, not 1). */
+    /* Run treehash updates: (h - bds_k) / 2 updates per signature.
+     * The division is exact because (h - bds_k) is guaranteed even by
+     * the bds_k validation (K=0 or (H-K) even). */
     if (p->tree_height > bds_k) {
-        bds_treehash_update(p, state, bds_k, (p->tree_height - bds_k + 1) / 2,
+        bds_treehash_update(p, state, bds_k, (p->tree_height - bds_k) / 2,
                             sk_seed, pub_seed, &adrs);
     }
 

@@ -115,7 +115,9 @@ typedef struct xmss_bds_state {
  * @pk:          Output public key (p->pk_bytes bytes).
  * @sk:          Output secret key (p->sk_bytes bytes).
  * @state:       Output BDS state (caller-allocated).
- * @bds_k:       Retain parameter (must be even, 0 <= bds_k <= h).
+ * @bds_k:       BDS retain parameter. K=0 always valid (no retain
+ *               optimisation). Non-zero K requires: K >= 2, K < tree_height,
+ *               and (tree_height - K) even (BDS algorithm precondition).
  * @randombytes: Caller-supplied entropy function.
  *
  * Returns XMSS_OK on success, XMSS_ERR_PARAMS if bds_k is invalid.
@@ -243,7 +245,8 @@ typedef struct xmss_mt_state {
  * @pk:          Output public key (p->pk_bytes bytes).
  * @sk:          Output secret key (p->sk_bytes bytes).
  * @state:       Output hypertree state (caller-allocated).
- * @bds_k:       BDS retain parameter (must be even, 0 <= bds_k <= tree_height).
+ * @bds_k:       BDS retain parameter. K=0 always valid. Non-zero K requires:
+ *               K >= 2, K < tree_height, and (tree_height - K) even.
  * @randombytes: Caller-supplied entropy function.
  *
  * Returns XMSS_OK on success.

@@ -16,7 +16,7 @@ param int LEN1       = 64;
 param int LEN2       = 3;
 param int LEN        = 67;
 param int TREE_HEIGHT = 5;
-param int BDS_K      = 2;
+param int BDS_K      = 0;
 
 /* XMSS-MT specific */
 param int D          = 4;

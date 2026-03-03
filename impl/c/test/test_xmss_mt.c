@@ -255,10 +255,28 @@ done:
     xmss_mt_test_ctx_free(&t);
 }
 
-/* bds_k=2 with tree_height=5 (20/4): boundary crossing.
- * Regression test: floor((H-K)/2) = 1 update/sign starves treehash[2],
- * causing wrong auth paths from idx=16 onward. Needs ceil((H-K)/2) = 2. */
-static void test_bds_k2_h5_boundary(void)
+/* bds_k=2 with tree_height=5 (20/4): rejected because (H-K)=3 is odd.
+ * The BDS algorithm requires (H-K) even as a precondition. */
+static void test_bds_k2_h5_rejected(void)
+{
+    xmss_mt_test_ctx t;
+    int ret;
+
+    printf("\n--- bds_k=2 tree_height=5 rejected (H-K odd) ---\n");
+
+    xmss_mt_test_ctx_init(&t, OID_XMSS_MT_SHA2_20_4_256);
+
+    test_rng_reset(0xBD55A2DEADULL);
+    ret = xmss_mt_keygen(&t.p, t.pk, t.sk, t.state, 2, test_randombytes);
+    TEST_INT("bds_k=2 h=5 rejected", ret, XMSS_ERR_PARAMS);
+
+    xmss_mt_test_ctx_free(&t);
+}
+
+/* bds_k=0 with tree_height=5 (20/4): boundary crossing.
+ * K=0 is the only valid BDS_K for tree_height=5 (no even K>0 gives even H-K).
+ * Still exercises full BDS traversal (5 treehash instances, auth path updates). */
+static void test_bds_k0_h5_boundary(void)
 {
     xmss_mt_test_ctx t;
     uint8_t msg[32];
@@ -266,15 +284,15 @@ static void test_bds_k2_h5_boundary(void)
     int ret;
     uint32_t boundary;
 
-    printf("\n--- bds_k=2 tree_height=5 boundary crossing ---\n");
+    printf("\n--- bds_k=0 tree_height=5 boundary crossing ---\n");
 
     xmss_mt_test_ctx_init(&t, OID_XMSS_MT_SHA2_20_4_256);
     boundary = (uint32_t)1 << t.p.tree_height;
     printf("  tree_height=%u, boundary at idx=%u\n", t.p.tree_height, boundary);
 
     test_rng_reset(0xBD55A2DEADULL);
-    ret = xmss_mt_keygen(&t.p, t.pk, t.sk, t.state, 2, test_randombytes);
-    TEST_INT("bds_k=2 h=5 keygen", ret, XMSS_OK);
+    ret = xmss_mt_keygen(&t.p, t.pk, t.sk, t.state, 0, test_randombytes);
+    TEST_INT("bds_k=0 h=5 keygen", ret, XMSS_OK);
     if (ret != XMSS_OK) { xmss_mt_test_ctx_free(&t); return; }
 
     /* Sign and verify every index through the boundary */
@@ -283,15 +301,15 @@ static void test_bds_k2_h5_boundary(void)
         msg[0] = (uint8_t)(i & 0xFF);
         msg[1] = (uint8_t)(i >> 8);
 
-        ret = xmss_mt_sign(&t.p, t.sig, msg, sizeof(msg), t.sk, t.state, 2);
+        ret = xmss_mt_sign(&t.p, t.sig, msg, sizeof(msg), t.sk, t.state, 0);
         if (ret != XMSS_OK) {
-            snprintf(label, sizeof(label), "bds_k=2 h=5 sign idx=%u", i);
+            snprintf(label, sizeof(label), "bds_k=0 h=5 sign idx=%u", i);
             TEST_INT(label, ret, XMSS_OK);
             break;
         }
 
         ret = xmss_mt_verify(&t.p, msg, sizeof(msg), t.sig, t.pk);
-        snprintf(label, sizeof(label), "bds_k=2 h=5 verify idx=%u", i);
+        snprintf(label, sizeof(label), "bds_k=0 h=5 verify idx=%u", i);
         TEST_INT(label, ret, XMSS_OK);
         if (ret != XMSS_OK) break;
     }
@@ -434,7 +452,8 @@ int main(void)
 
     test_message_boundaries();
     test_bds_k2();
-    test_bds_k2_h5_boundary();
+    test_bds_k2_h5_rejected();
+    test_bds_k0_h5_boundary();
     test_cross_key();
     test_remaining_sigs();
 

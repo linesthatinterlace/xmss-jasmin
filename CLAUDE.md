@@ -66,11 +66,13 @@ WWW/EBI (What Went Well / Even Better If) is a reflective evaluation framework. 
 
 ### What's been done
 
-A ceiling-vs-floor division bug in the BDS treehash update budget survived because no test exercised (H=5, K=2, ≥16 signatures). The following defences are now in place:
+The BDS algorithm requires `(H - K)` to be even as a precondition (confirmed by xmss-reference `xmss_set_params` and the XMSS-MT paper [ePrint 2017/966]). This means the treehash update budget `(H - K) / 2` is always an exact division. We previously applied a ceiling-division fix that masked a precondition violation (using K=2 with H=5, giving odd H-K=3). That fix has been reverted and the validation tightened. See `XMSS_REFERENCE_BDS_K_BUG.md` for the full retraction.
+
+The following defences are in place:
 
 1. **Treehash completion assertion** (C, `bds.c`): `assert(treehash[i].completed)` before consuming the node in `bds_round()`. Active in debug builds (`NDEBUG`), zero cost in release. Catches budget starvation at the point of corruption.
 
-2. **Exhaustive (H, K) matrix** (C, `test_bds_exhaustive.c`): Signs and verifies EVERY index through a full tree for 6 (H, K) combos — H=5 K=0/2/4 (32 sigs each, <1s) and H=10 K=0/2/4 (1024 sigs each, ~2-4 min). Includes post-sign BDS state validation and key exhaustion checks.
+2. **Exhaustive (H, K) matrix** (C, `test_bds_exhaustive.c`): Signs and verifies EVERY index through a full tree for 4 (H, K) combos — H=5 K=0 (32 sigs, <1s; the only valid K for H=5) and H=10 K=0/2/4 (1024 sigs each, ~2-4 min). Includes post-sign BDS state validation and key exhaustion checks.
 
 3. **Deep cross-implementation interop** (Jasmin, `test_interop_deep_xmss_sha2_10_256.c`): Signs 64 messages with both C and Jasmin from the same seed. After EACH signature, compares:
    - Signatures byte-for-byte (auth path divergence = BDS state bug)
@@ -80,6 +82,8 @@ A ceiling-vs-floor division bug in the BDS treehash update budget survived becau
 4. **Boundary test verification** (Jasmin, `test_api_xmssmt_common.h`): XMSS-MT 20/4 boundary test now verifies EVERY signature through the tree boundary, not just 4 spot-check indices.
 
 5. **Three-tier C test labelling**: `ctest -L fast` (seconds), `ctest -L core` (<5 min), `ctest -L deep` (5-15 min). CI runs all three tiers sequentially — a BDS bug in H=5 fails in Tier 2 within seconds.
+
+6. **bds_k validation tests**: C tests verify rejection of invalid K values including K with odd (H-K) for XMSS-MT 20/4 (tree_height=5).
 
 ### Notes
 
