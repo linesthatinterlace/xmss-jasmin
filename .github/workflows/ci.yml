@@ -112,17 +112,12 @@ jobs:
           name: jasmin-test-binaries
           path: bin
 
-      - name: API tests (fast — h=10, MT 20/2, MT 20/4)
+      - name: API tests (h=10, MT 20/2, MT 20/4)
         run: |
           chmod +x bin/*
           bin/test_api_xmss_sha2_10_256
           bin/test_api_xmssmt_sha2_20_2_256
           bin/test_api_xmssmt_sha2_20_4_256
-
-      - name: API tests (slow — h=16, h=20)
-        run: |
-          bin/test_api_xmss_sha2_16_256
-          bin/test_api_xmss_sha2_20_256
 
   jasmin-interop:
     name: jasmin-interop

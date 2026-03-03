@@ -1,0 +1,107 @@
+name: Scheduled Tests
+
+on:
+  schedule:
+    - cron: '0 4 * * 0'  # Sunday 04:00 UTC — C exhaustive BDS
+    - cron: '0 4 * * 2'  # Tuesday 04:00 UTC — Jasmin slow API
+    - cron: '0 4 * * 4'  # Thursday 04:00 UTC — RISC-V
+  workflow_dispatch:       # Manual trigger (runs all jobs)
+
+jobs:
+  # C: full exhaustive BDS matrix (H=5 and H=10, all K values)
+  # Catches treehash budget bugs across every (H,K) combination.
+  c-exhaustive:
+    name: C exhaustive BDS
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 4 * * 0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    env:
+      CC: ${{ matrix.cc }}
+    defaults:
+      run:
+        working-directory: impl/c
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (debug — enables assertions)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DXMSS_WERROR=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Exhaustive BDS test (H=5 K=0,2,4 + H=10 K=0,2,4)
+        run: ctest --test-dir build --output-on-failure -R test_bds_exhaustive
+        timeout-minutes: 30
+
+  # Jasmin: slow API tests (h=16 ~10min, h=20 ~3h)
+  # Fast param sets (h=10, MT 20/2, MT 20/4) are covered by per-push CI.
+  jasmin-slow-api:
+    name: Jasmin slow API
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 4 * * 2'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: impl/jasmin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "4.14"
+
+      - name: Install Jasmin
+        run: opam install jasmin -y
+
+      - name: Build C library
+        working-directory: impl/c
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target xmss
+
+      - name: Compile
+        run: opam exec -- make -j$(nproc)
+
+      - name: Slow API tests (h=16, h=20)
+        run: |
+          ./build/test/test_api_xmss_sha2_16_256
+          ./build/test/test_api_xmss_sha2_20_256
+        timeout-minutes: 240
+
+  # RISC-V: cross-compile + QEMU
+  riscv:
+    name: RISC-V
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 4 * * 4'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: impl/c
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-riscv64-linux-gnu libc6-dev-riscv64-cross qemu-user
+
+      - name: Configure
+        run: >
+          cmake -B build-rv
+          -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-riscv64.cmake
+          -DCMAKE_BUILD_TYPE=Release
+          -DXMSS_WERROR=ON
+          -DXMSS_TEST_TIMEOUT_SCALE=2
+
+      - name: Build
+        run: cmake --build build-rv
+
+      - name: Fast tests
+        run: ctest --test-dir build-rv --output-on-failure -L fast
+
+      - name: Sign/verify roundtrips
+        run: >
+          ctest --test-dir build-rv --output-on-failure
+          -R "^(test_xmss|test_xmss_mt)$"

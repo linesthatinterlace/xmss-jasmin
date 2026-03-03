@@ -20,17 +20,19 @@ Read the CLAUDE.md in the relevant implementation directory for build commands, 
 
 GitHub Actions CI runs on every push and PR:
 
-- **`ci.yml`**:
+- **`ci.yml`** (every push/PR, ~10 min):
   - **C (native)**: gcc + clang (`-Werror`), three-tier test organisation:
     - Tier 1 "fast" (< 30s): params, address, hash, wots, utils — fail fast.
     - Tier 2 "core" (< 5 min): sign/verify roundtrips, BDS serial, BDS exhaustive (H=5+H=10), XMSS-MT boundary.
     - Tier 3 "deep" (5-15 min): KAT (512 sigs), XMSS-MT KAT, ACVP cross-checks.
   - **Jasmin**: build job (compile + CT checks) → three parallel test jobs via artifact sharing:
     - `jasmin-unit`: 9 unit tests (seconds)
-    - `jasmin-api`: fast + slow API tests (h=10/16/20, MT 20/2, MT 20/4)
+    - `jasmin-api`: h=10, MT 20/2, MT 20/4 (~1 min)
     - `jasmin-interop`: shallow + deep interop (64 sigs + BDS state comparison) + KAT
-- **`ci-weekly.yml`**: Deep tests on Sunday 04:00 UTC + manual trigger. C exhaustive BDS (debug build, assertions enabled). Jasmin deep interop + slow API + full boundary verification.
-- **`riscv.yml`**: RISC-V cross-compile + QEMU (fast tests + sign/verify roundtrips). Weekly Monday + manual trigger.
+- **`ci-scheduled.yml`** (spaced across the week + manual trigger):
+  - **Sunday 04:00 UTC**: C exhaustive BDS (debug build, assertions enabled, all H/K combos)
+  - **Tuesday 04:00 UTC**: Jasmin slow API (h=16 ~10 min, h=20 ~3h)
+  - **Thursday 04:00 UTC**: RISC-V cross-compile + QEMU (fast tests + sign/verify roundtrips)
 
 **Prefer pushing and letting CI run the full test suite** rather than running slow tests locally. Use `ctest -L fast` (C) or `make test` (Jasmin) locally for quick smoke checks, then push to get full coverage across compilers.
 
