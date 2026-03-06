@@ -101,11 +101,11 @@ impl/jasmin/
   SKILL.md              Jasmin language reference, pitfalls, patterns
   Makefile
   api/                  Production .jazz source files with libjade naming
-    xmss_sha2_10_256.jazz     XMSS-SHA2_10_256 (h=10, OID=1)
-    xmss_sha2_16_256.jazz     XMSS-SHA2_16_256 (h=16, OID=2)
-    xmss_sha2_20_256.jazz     XMSS-SHA2_20_256 (h=20, OID=3)
-    xmssmt_sha2_20_2_256.jazz XMSSMT-SHA2_20/2_256 (D=2, h=10, OID=1)
-    xmssmt_sha2_20_4_256.jazz XMSSMT-SHA2_20/4_256 (D=4, h=5, OID=2)
+    xmss_sha2_10_256_amd64.jazz     XMSS-SHA2_10_256 (h=10, OID=1)
+    xmss_sha2_16_256_amd64.jazz     XMSS-SHA2_16_256 (h=16, OID=2)
+    xmss_sha2_20_256_amd64.jazz     XMSS-SHA2_20_256 (h=20, OID=3)
+    xmssmt_sha2_20_2_256_amd64.jazz XMSSMT-SHA2_20/2_256 (D=2, h=10, OID=1)
+    xmssmt_sha2_20_4_256_amd64.jazz XMSSMT-SHA2_20/4_256 (D=4, h=5, OID=2)
   build/                Generated files (gitignored)
     api/*.s             Compiled API assembly
     test/*.s            Compiled unit test assembly

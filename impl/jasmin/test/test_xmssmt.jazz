@@ -3,30 +3,7 @@
  * Params: XMSSMT-SHA2_20/2_256
  */
 
-param int N          = 32;
-param int W          = 16;
-param int LOG2_W     = 4;
-param int LEN1       = 64;
-param int LEN2       = 3;
-param int LEN        = 67;
-param int TREE_HEIGHT = 10;
-param int BDS_K      = 2;
-
-/* XMSS-MT specific */
-param int D          = 2;
-param int FULL_H     = 20;
-param int IDX_BYTES  = 3;
-param int XMSSMT_OID = 0x00000001;
-
-require "../src/utils.jinc"
-require "../src/utils.jinc"
-require "../src/address.jinc"
-require "../src/hash/sha256_n32.jinc"
-require "../src/wots.jinc"
-require "../src/ltree.jinc"
-require "../src/treehash.jinc"
-require "../src/bds.jinc"
-require "../src/xmssmt.jinc"
+require "../src/params_xmssmt_sha2_20_2_256.jinc"
 
 #[ct = "public × public × public × public × public → public"]
 export fn test_xmssmt_keygen(reg u64 pk, reg u64 sk, reg u64 mt_state,
