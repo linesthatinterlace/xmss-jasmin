@@ -6,7 +6,7 @@
 JASMINC  := jasminc
 JFLAGS   := -arch x86-64
 CC       := gcc
-CFLAGS   := -no-pie
+CFLAGS   := -Wall -Wextra -g -no-pie  # -no-pie: Jasmin asm uses absolute addressing
 BUILD    := build
 
 # Every .jinc file — conservative dep tracking (jasminc has no -MMD)
