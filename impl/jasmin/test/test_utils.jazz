@@ -8,7 +8,7 @@ export fn test_ull_to_bytes_4(reg u64 out, reg u64 val) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
   __ull_to_bytes(out, 4, val);
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
 
@@ -18,7 +18,7 @@ export fn test_ull_to_bytes_8(reg u64 out, reg u64 val) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
   __ull_to_bytes(out, 8, val);
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
 
@@ -55,6 +55,6 @@ export fn test_memzero_32(reg u64 p) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
   __memzero(p, 32);
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }

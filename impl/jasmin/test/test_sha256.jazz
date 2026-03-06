@@ -10,7 +10,7 @@ export fn test_sha256(reg u64 out, reg u64 inp, reg u64 inlen) -> reg u64 {
   reg u64 r;
   _ = #init_msf();
   __sha256_oneshot(out, inp, inlen);
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
 
@@ -20,6 +20,6 @@ export fn test_xmss_prf(reg u64 out, reg u64 key, reg u64 adrs_bytes) -> reg u64
   reg u64 r;
   _ = #init_msf();
   __xmss_PRF(out, key, adrs_bytes);
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }

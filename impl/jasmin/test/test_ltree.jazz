@@ -18,9 +18,7 @@ export fn test_ltree(reg u64 root, reg u64 pk, reg u64 seed,
   stack u32[8] adrs;
   reg ptr u32[8] adrs_rp;
   stack u64 s_root s_pk s_seed;
-  reg u32 w;
   reg u64 r;
-  inline int i;
 
   _ = #init_msf();
 
@@ -28,14 +26,7 @@ export fn test_ltree(reg u64 root, reg u64 pk, reg u64 seed,
   s_pk = pk;
   s_seed = seed;
 
-  for i = 0 to 8 {
-    w = [:u32 adrs_ptr + 4 * i];
-    w = #BSWAP_32(w);
-    adrs[i] = w;
-  }
-
-  /* We need a reg u64 pointer to scratch space for ADRS serialization.
-     Use #LEA or just pass the adrs_ptr (caller's buffer) as scratch. */
+  adrs = __adrs_from_bytes(adrs_ptr);
 
   root = s_root;
   pk = s_pk;
@@ -45,6 +36,6 @@ export fn test_ltree(reg u64 root, reg u64 pk, reg u64 seed,
   /* Reuse the caller's adrs_ptr buffer (32 bytes) as scratch space */
   __ltree(root, pk, seed, adrs_ptr, adrs_rp);
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
