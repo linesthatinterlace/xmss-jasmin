@@ -333,7 +333,7 @@ inline fn __sha256_prf_internal(inline int domain, reg u64 key, reg u64 m)
   return result;
 }
 
-/* __xmss_PRF — PRF(KEY, ADRS) = SHA-256(toByte(3, N) || KEY || ADRS)
+/* __xmss_PRF — PRF(KEY, ADRS) = SHA-256(toByte(3, N) || KEY || ADRS) — domain 0x03 = PRF
  * External interface: writes N bytes to out pointer. */
 fn __xmss_PRF(reg u64 out, reg u64 key, reg u64 adrs_bytes) {
   stack u8[N] result;
@@ -351,7 +351,7 @@ fn __xmss_PRF_keygen(reg u64 out, reg u64 sk_seed, reg u64 pub_seed,
   inline int i;
 
   for i = 0 to N - 1 { ibuf[i] = 0; }
-  ibuf[N - 1] = 0x04;
+  ibuf[N - 1] = 0x04;  /* domain 0x04 = PRF_keygen */
   for i = 0 to N { b = [:u8 sk_seed + i]; ibuf[N + i] = b; }
   for i = 0 to N { b = [:u8 pub_seed + i]; ibuf[2 * N + i] = b; }
   for i = 0 to 32 { b = [:u8 adrs_bytes + i]; ibuf[3 * N + i] = b; }
@@ -380,7 +380,10 @@ fn __xmss_F(reg u64 out, reg u64 pub_seed, reg u64 adrs_bytes,
   s_inp = inp;
   s_adrs = adrs_bytes;
 
-  /* km=0: generate key */
+  /* km=0: generate key.
+   * Note: the reload of adrs_bytes before each fn call is not redundant —
+   * Jasmin fn calls clobber all reg variables; the reload after writing the km
+   * field (before the call) is a belt-and-braces guard against that. */
   adrs_bytes = s_adrs;
   [:u32 adrs_bytes + 28] = 0;
   pub_seed = s_pub_seed;
@@ -398,7 +401,7 @@ fn __xmss_F(reg u64 out, reg u64 pub_seed, reg u64 adrs_bytes,
   adrs_bytes = s_adrs;
   [:u32 adrs_bytes + 28] = 0;
 
-  /* Build: toByte(0, N) || prf_key || (inp XOR bitmask) */
+  /* Build: toByte(0, N) || prf_key || (inp XOR bitmask) — domain 0x00 = F */
   for i = 0 to N - 1 { ibuf[i] = 0; }
   ibuf[N - 1] = 0x00;
   for i = 0 to N { b1 = prf_key[i]; ibuf[N + i] = b1; }
@@ -462,7 +465,7 @@ fn __xmss_H(reg u64 out, reg u64 pub_seed, reg u64 adrs_bytes,
   adrs_bytes = s_adrs;
   [:u32 adrs_bytes + 28] = 0;
 
-  /* Build: toByte(1, N) || prf_key || (in_l XOR bm_l) || (in_r XOR bm_r) */
+  /* Build: toByte(1, N) || prf_key || (in_l XOR bm_l) || (in_r XOR bm_r) — domain 0x01 = H */
   for i = 0 to N - 1 { ibuf[i] = 0; }
   ibuf[N - 1] = 0x01;
   for i = 0 to N { b1 = prf_key[i]; ibuf[N + i] = b1; }
@@ -508,7 +511,7 @@ fn __xmss_H_msg(reg u64 out, reg u64 r, reg u64 root,
   s_out = out;
   s_msglen_orig = msglen;
 
-  /* Build 128-byte prefix */
+  /* Build 128-byte prefix — domain 0x02 = H_msg */
   for i = 0 to N - 1 { prefix[i] = 0; }
   prefix[N - 1] = 0x02;
   for i = 0 to N { b = [:u8 r + i]; prefix[N + i] = b; }
@@ -567,8 +570,8 @@ fn __xmss_H_msg(reg u64 out, reg u64 r, reg u64 root,
 }
 
 /* __xmss_PRF_idx — PRF(SK_PRF, toByte(idx, 32))
- * Same as PRF with idx_32bytes in place of ADRS. */
-fn __xmss_PRF_idx(reg u64 out, reg u64 sk_prf, reg u64 idx_32bytes) {
+ * Same domain (0x03) and layout as __xmss_PRF; inlined to avoid call overhead. */
+inline fn __xmss_PRF_idx(reg u64 out, reg u64 sk_prf, reg u64 idx_32bytes) {
   __xmss_PRF(out, sk_prf, idx_32bytes);
 }
 
@@ -606,7 +609,7 @@ inline fn __xmss_PRF_keygen_rp(reg ptr u8[32] sk_seed_rp,
   reg u8 b;
   inline int i;
   for i = 0 to N - 1 { ibuf[i] = 0; }
-  ibuf[N - 1] = 0x04;
+  ibuf[N - 1] = 0x04;  /* domain 0x04 = PRF_keygen */
   for i = 0 to N  { b = sk_seed_rp[i]; ibuf[N + i] = b; }
   for i = 0 to N  { b = pub_seed_rp[i]; ibuf[2 * N + i] = b; }
   for i = 0 to 32 { b = adrs_bytes_rp[i]; ibuf[3 * N + i] = b; }
