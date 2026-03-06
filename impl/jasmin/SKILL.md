@@ -4,7 +4,7 @@ description: >
   Write and modify Jasmin (.jazz / .jinc) cryptographic assembly code.
   Trigger when working with .jazz or .jinc files, jasminc compilation,
   Jasmin type system (reg, stack, reg ptr, inline fn), or x86-64 intrinsics
-  like #ROR_32, #BSWAP_32, #set0. Also trigger for XMSS hash functions,
+  like >>r, #BSWAP_32, #set0. Also trigger for XMSS hash functions,
   WOTS+, or ADRS manipulation in Jasmin.
 tools: Read, Edit, Write, Bash, Glob, Grep
 ---
@@ -127,12 +127,21 @@ r = (32u)x;                    // truncate to 32 bits
 r = (64u)x;                    // zero-extend to 64 bits
 r = (uint)x;                   // coerce type in expression context
 
-// x86 intrinsics — ALWAYS capture ALL return values
-_, _, r = #ROR_32(x, 3);       // rotate right 32 → (OF, CF, result)
-_, _, r = #ROL_32(x, 3);       // rotate left 32 → (OF, CF, result)
-r = #BSWAP_32(r);              // byte-swap u32 → result only
-r = #BSWAP_64(r);              // byte-swap u64 → result only
-?{}, r = #set0();              // xor reg,reg (zero, no dependency)
+// Rotations — prefer >>r / <<r over #ROR_32 / #ROL_32
+r = x; r >>r= 3;               // rotate right in-place (safe: r and x can differ)
+r = x; r <<r= 3;               // rotate left in-place
+// r = x >>r 3;                // non-destructive form: ONLY safe if x is dead after
+                                // (internally still uses ROR; compiler requires src==dst register)
+
+// Avoid #BSWAP_32 / #BSWAP_64 outside the hash layer: x86-specific and
+// not modelled as CT in Jasmin. Use portable big-endian serialisation:
+reg u32 tmp; reg u8 b;
+tmp = w; tmp >>= 24; b = (8u)tmp; out[0] = b;
+tmp = w; tmp >>= 16; b = (8u)tmp; out[1] = b;
+tmp = w; tmp >>=  8; b = (8u)tmp; out[2] = b;
+                      b = (8u)w;   out[3] = b;
+// (8u)(w >> 8) without intermediate tmp is a linearization error on x86
+// Avoid ?{}, r = #set0(); — use r = 0; instead (with -set0 in JFLAGS, compiler emits xor)
 _ = #init_msf();               // Spectre v1 init (required at export fn entry)
 ```
 
@@ -387,6 +396,164 @@ fn _blocks(reg ptr u32[8] _H, reg u64 in inlen) -> reg ptr u32[8], reg u64, reg 
 Key: `H` always points to the same region (the caller's array via `_H`).
 `Hp` preserves it across function calls. Never reassign `H` to a different stack var.
 
+## Compiler flags
+
+`jasminc` has a rich set of flags for controlling compilation, inspecting intermediate stages, and diagnosing errors. Understanding them saves significant debugging time.
+
+### Isolating a single function
+
+```bash
+jasminc -slice my_fn foo.jazz -o foo.s
+```
+
+`-slice [f]` compiles only `f` and everything it transitively calls — all other functions are dropped. Use this when you have a large `.jazz` file and want to iterate quickly on one function without waiting for the whole file to compile (or triggering errors from unrelated functions).
+
+### Inspecting intermediate representations
+
+The compiler exposes the program after each internal pass via `-p*` flags. These are invaluable for diagnosing errors that occur late in the pipeline:
+
+| Flag | When to use |
+|------|-------------|
+| `-pinline` | Verify that `inline fn` calls were actually inlined; catch unexpected call graph shape |
+| `-punroll` | Check loop bounds are being expanded correctly |
+| `-parrexp` | See how register arrays are expanded before allocation |
+| `-pstkalloc` | Debug stack layout; verify which variables landed on stack vs registers |
+| `-pliveness` | Show liveness ranges during register allocation — essential for partial-region and regalloc failures |
+| `-pralloc` | See register assignment — which variable got which register at each program point |
+| `-plinear` | Show the program just before assembly emission — last chance before asmgen errors |
+| `-pasm` | Print final assembly to stdout without writing the output file |
+
+Combine with `-slice` to limit the output to the function under study:
+```bash
+jasminc -slice my_fn -pralloc foo.jazz -o /dev/null 2>&1 | head -80
+```
+
+### Stopping compilation early
+
+`-until_*` flags stop the compiler after a specific pass and print the current program state. Useful when a later pass crashes and you want to see the input it received:
+
+```bash
+jasminc -until_ralloc foo.jazz   # stop before register allocation (see pre-alloc IR)
+jasminc -until_inline foo.jazz   # stop after inlining (check inline fn expansion)
+jasminc -until_unroll foo.jazz   # stop after loop unrolling
+```
+
+Typical workflow for a linearization error:
+1. `-until_ralloc` — confirm regalloc succeeded, then
+2. `-plinear` — see what the linearizer received, then
+3. `-pasm` — see what assembly was generated
+
+### Warnings
+
+Always develop with at least `-wunusedvar`. For thorough checking, use `-wall`:
+
+```bash
+jasminc -wall foo.jazz -o foo.s      # enable all warnings
+jasminc -wunusedvar foo.jazz -o foo.s # unused variables only
+jasminc -wduplicatevar ...            # two variables sharing a name (often a mistake)
+jasminc -wea ...                      # extra assignments introduced (compiler workaround indicators)
+jasminc -winsertarraycopy ...         # automatic array copies (can affect performance)
+```
+
+Unused variables in Jasmin are often a sign of a real bug (e.g., a computed value that never gets stored) rather than just style. Don't suppress with `-nowarning` during development.
+
+### Code generation options
+
+```bash
+-lea / -nolea     # Use LEA instructions for address arithmetic (default: nolea, prefer ADD/MUL)
+-set0             # Use XOR x,x to zero registers (smaller encoding than MOV x,0; default: off)
+-intel            # Output Intel-syntax assembly (easier to read than AT&T for most people)
+```
+
+`-intel` is useful when reading the generated `.s` to verify constant-time behaviour or diagnose code-generation bugs.
+
+### Stack zeroization (security)
+
+Export functions can automatically zeroize their stack frame on exit, preventing secret leakage via stack reuse:
+
+```bash
+-stack-zero loop         # zero stack with a loop (small code size)
+-stack-zero loopSCT      # loop with speculative-CT hardening
+-stack-zero unrolled     # unrolled (faster, larger code)
+-stack-zero-size u64     # granularity of zeroization (u8/u16/u32/u64/u128/u256)
+```
+
+This is a correctness/security concern for cryptographic code: without `-stack-zero`, secrets in stack-allocated variables may remain readable after the function returns.
+
+### Safety checking
+
+```bash
+-checksafety                          # run automatic memory-safety checker
+-safetyparam "f>pt_1,...;len_1,..."   # specify pointer ranges for f
+-nocheckalignment                     # suppress alignment warnings from safety checker
+```
+
+`-checksafety` verifies that array accesses are within bounds. **It is slow — always combine with `-slice`** to check one function at a time rather than the whole file:
+
+```bash
+jasminc -slice my_fn -checksafety foo.jazz -o /dev/null
+```
+
+For functions that take pointer arguments you need `-safetyparam` to tell the checker what ranges are valid.
+
+### Spilling
+
+```bash
+-auto-spill       # spill only #[spill]-annotated variables (targeted)
+-auto-spill-all   # spill all reg variables (last resort for regalloc failures)
+```
+
+`-auto-spill-all` almost always succeeds where regalloc fails, but generates poor code. Use it to confirm "this is a regalloc failure, not an algorithm bug", then fix the root cause (usually: too many `inline fn` calls, or live variables spanning a SHA-256 call).
+
+### Architecture and platform
+
+```bash
+-arch x86-64      # default
+-arch riscv       # RISC-V backend (immature; some passes may fail)
+-arch arm-m4      # ARM Cortex-M4
+-call-conv linux  # System V calling convention (default on Linux)
+-call-conv windows# Microsoft x64 calling convention
+-system linux     # Linux system (default on Linux)
+-system macosx    # macOS (affects symbol naming)
+```
+
+### Diagnostics
+
+```bash
+-timings          # print elapsed time after each pass (find slow compilation stages)
+-debug            # verbose internal debug output (rarely needed; very noisy)
+-color always     # force colored error output even when stdout is not a tty
+-linting-level 2  # increase linting strictness (default 1; 0 = off)
+```
+
+`-timings` is useful when compilation of a large `.jazz` file is slow — it pinpoints whether the bottleneck is inlining, unrolling, or regalloc.
+
+### Typical debugging workflows
+
+**Register allocation failure:**
+```bash
+jasminc -slice failing_fn -pliveness foo.jazz -o /dev/null 2>&1
+# identify which variables are live across which call — then reduce live ranges
+```
+
+**Linearization / asmgen error:**
+```bash
+jasminc -slice failing_fn -plinear foo.jazz -o /dev/null 2>&1
+# look at the instruction just before the error — ask "what x86 op is this?"
+```
+
+**"Partial region" error on reg ptr:**
+```bash
+jasminc -slice failing_fn -pstkalloc foo.jazz -o /dev/null 2>&1
+# find which stack region each reg ptr maps to at each program point
+```
+
+**Slow compilation:**
+```bash
+jasminc -timings foo.jazz -o foo.s
+# then: -until_<slow_pass> to profile individual passes
+```
+
 ## Working with Jasmin
 
 ### Think in x86 instructions
@@ -424,7 +591,7 @@ fn __xmss_PRF(reg u64 out, reg u64 key, reg u64 adrs_bytes) {
 Factor out CH, MAJ, Sigma functions as inline fns for readability and reuse:
 ```jasmin
 inline fn __ROTR(reg u32 x, inline int c) -> reg u32 {
-  reg u32 r; r = x; _, _, r = #ROR_32(r, c); return r;
+  reg u32 r; r = x; r >>r= c; return r;
 }
 inline fn __CH(reg u32 x y z) -> reg u32 {
   reg u32 r s;
@@ -454,8 +621,14 @@ inline fn __adrs_set_type(stack u32[8] adrs, inline int t) -> stack u32[8] {
   return adrs;
 }
 inline fn __adrs_to_bytes(stack u32[8] adrs) -> stack u8[32] {
-  stack u8[32] buf; reg u32 w; inline int i;
-  for i = 0 to 8 { w = adrs[i]; w = #BSWAP_32(w); buf[:u32 i] = w; }
+  stack u8[32] buf; reg u32 w tmp; reg u8 b; inline int i;
+  for i = 0 to 8 {
+    w = adrs[i];
+    tmp = w; tmp >>= 24; b = (8u)tmp; buf[4*i + 0] = b;
+    tmp = w; tmp >>= 16; b = (8u)tmp; buf[4*i + 1] = b;
+    tmp = w; tmp >>=  8; b = (8u)tmp; buf[4*i + 2] = b;
+                          b = (8u)w;   buf[4*i + 3] = b;
+  }
   return buf;
 }
 ```
