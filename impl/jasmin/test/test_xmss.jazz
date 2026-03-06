@@ -14,6 +14,7 @@ param int BDS_K      = 2;
 param int XMSS_OID   = 1;
 
 require "../src/utils.jinc"
+require "../src/utils.jinc"
 require "../src/address.jinc"
 require "../src/hash/sha256_n32.jinc"
 require "../src/wots.jinc"

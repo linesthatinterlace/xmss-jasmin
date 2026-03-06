@@ -19,6 +19,7 @@ param int IDX_BYTES  = 3;
 param int XMSSMT_OID = 0x00000001;
 
 require "../src/utils.jinc"
+require "../src/utils.jinc"
 require "../src/address.jinc"
 require "../src/hash/sha256_n32.jinc"
 require "../src/wots.jinc"

@@ -69,10 +69,9 @@ inline fn __sha256_compress(stack u32[8] state, stack u8[64] block)
   reg u32 t1 t2 s0 s1 ch maj tmp tmp2;
   inline int i;
 
-  /* Message schedule: W[0..15] from big-endian block */
+  /* Message schedule: W[0..15] — load each 4-byte group as big-endian u32 */
   for i = 0 to 16 {
-    tmp = block[:u32 i];
-    tmp = #BSWAP_32(tmp);
+    tmp = __load_be32(block, 4*i);
     w[i] = tmp;
   }
 
@@ -161,15 +160,18 @@ inline fn __sha256_compress(stack u32[8] state, stack u8[64] block)
   return state;
 }
 
+/* Copy stack u8[N] to a reg u64 output pointer */
+inline fn __store_n(reg u64 out, stack u8[N] src) {
+  reg u8 b;
+  inline int i;
+  for i = 0 to N { b = src[i]; [:u8 out + i] = b; }
+}
+
 /* Write SHA-256 state as big-endian bytes to output pointer */
 inline fn __sha256_store_hash(reg u64 out, stack u32[8] state) {
-  reg u32 tmp;
-  inline int i;
-  for i = 0 to 8 {
-    tmp = state[i];
-    tmp = #BSWAP_32(tmp);
-    [:u32 out + 4 * i] = tmp;
-  }
+  stack u8[N] buf;
+  buf = __u32x8_to_be_bytes(state);
+  __store_n(out, buf);
 }
 
 /* SHA-256 one-shot: hash inlen bytes at inp, write 32 bytes at out. */
@@ -217,8 +219,7 @@ fn __sha256_oneshot(reg u64 out, reg u64 inp, reg u64 inlen) {
     for i = 0 to 8 { blk[:u64 i] = 0; }
   }
 
-  bitcount = #BSWAP_64(bitcount);
-  blk[:u64 7] = bitcount;
+  blk = __store_be64(blk, 56, bitcount);
 
   blkp = blk;
   state = __sha256_compress(state, blkp);
@@ -234,13 +235,6 @@ fn __sha256_oneshot(reg u64 out, reg u64 inp, reg u64 inlen) {
  * External-facing functions write to a reg u64 output pointer.
  * ==================================================================== */
 
-/* Copy stack u8[N] to a reg u64 output pointer */
-inline fn __store_n(reg u64 out, stack u8[N] src) {
-  reg u8 b;
-  inline int i;
-  for i = 0 to N { b = src[i]; [:u8 out + i] = b; }
-}
-
 /* Hash 96 bytes from ibuf: 1 full block + 32 partial + padding.
  * Returns the 32-byte hash as a stack array. */
 inline fn __sha256_hash96(stack u8[96] ibuf) -> stack u8[N] {
@@ -249,7 +243,6 @@ inline fn __sha256_hash96(stack u8[96] ibuf) -> stack u8[N] {
   reg ptr u8[64] blkp;
   stack u32[8] state;
   reg u64 bitcount;
-  reg u32 tmp;
   reg u8 b;
   inline int i;
 
@@ -263,17 +256,11 @@ inline fn __sha256_hash96(stack u8[96] ibuf) -> stack u8[N] {
   for i = 0 to 32 { b = ibuf[64 + i]; blk[i] = b; }
   blk[32] = 0x80;
   bitcount = 96 * 8;
-  bitcount = #BSWAP_64(bitcount);
-  blk[:u64 7] = bitcount;
+  blk = __store_be64(blk, 56, bitcount);
   blkp = blk;
   state = __sha256_compress(state, blkp);
 
-  /* Store hash as big-endian into result */
-  for i = 0 to 8 {
-    tmp = state[i];
-    tmp = #BSWAP_32(tmp);
-    result[:u32 i] = tmp;
-  }
+  result = __u32x8_to_be_bytes(state);
   return result;
 }
 
@@ -285,7 +272,6 @@ inline fn __sha256_hash128(stack u8[128] ibuf) -> stack u8[N] {
   reg ptr u8[64] blkp;
   stack u32[8] state;
   reg u64 bitcount;
-  reg u32 tmp;
   reg u8 b;
   inline int i;
 
@@ -302,16 +288,11 @@ inline fn __sha256_hash128(stack u8[128] ibuf) -> stack u8[N] {
   for i = 0 to 8 { blk[:u64 i] = 0; }
   blk[0] = 0x80;
   bitcount = 128 * 8;
-  bitcount = #BSWAP_64(bitcount);
-  blk[:u64 7] = bitcount;
+  blk = __store_be64(blk, 56, bitcount);
   blkp = blk;
   state = __sha256_compress(state, blkp);
 
-  for i = 0 to 8 {
-    tmp = state[i];
-    tmp = #BSWAP_32(tmp);
-    result[:u32 i] = tmp;
-  }
+  result = __u32x8_to_be_bytes(state);
   return result;
 }
 
@@ -557,8 +538,7 @@ fn __xmss_H_msg(reg u64 out, reg u64 r, reg u64 root,
   total_bits = s_msglen_orig;
   total_bits += 128;
   total_bits <<= 3;
-  total_bits = #BSWAP_64(total_bits);
-  blk[:u64 7] = total_bits;
+  blk = __store_be64(blk, 56, total_bits);
   blkp = blk;
   state = __sha256_compress(state, blkp);
 
