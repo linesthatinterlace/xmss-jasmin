@@ -24,9 +24,8 @@ export fn test_compute_root(reg u64 root, reg u64 leaf,
   stack u32[8] adrs;
   reg ptr u32[8] adrs_rp;
   stack u64 s_root s_leaf s_auth s_seed;
-  reg u32 leaf_idx w;
+  reg u32 leaf_idx;
   reg u64 r;
-  inline int i;
 
   _ = #init_msf();
 
@@ -35,12 +34,7 @@ export fn test_compute_root(reg u64 root, reg u64 leaf,
   s_auth = auth;
   s_seed = seed;
 
-  /* Load ADRS from caller (big-endian u32s → host u32s) */
-  for i = 0 to 8 {
-    w = [:u32 adrs_ptr + 4 * i];
-    w = #BSWAP_32(w);
-    adrs[i] = w;
-  }
+  adrs = __adrs_from_bytes(adrs_ptr);
 
   leaf_idx = (32u)leaf_idx_u64;
   root = s_root;
@@ -51,7 +45,7 @@ export fn test_compute_root(reg u64 root, reg u64 leaf,
 
   __compute_root(root, leaf, leaf_idx, auth, seed, adrs_ptr, adrs_rp);
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
 
@@ -68,20 +62,14 @@ export fn test_treehash(reg u64 root, reg u64 s_val, reg u64 t_val,
   reg ptr u32[8] adrs_rp;
   stack u64 s_root s_sk s_pub;
   reg u64 adrs_buf wots_buf nodes_buf r;
-  reg u32 s32 t32 w;
-  inline int i;
+  reg u32 s32 t32;
 
   _ = #init_msf();
 
   s_root = root;
   s_sk = sk_seed;
   s_pub = pub_seed;
-  /* Load ADRS from first 32 bytes of scratch (big-endian → host) */
-  for i = 0 to 8 {
-    w = [:u32 scratch + 4 * i];
-    w = #BSWAP_32(w);
-    adrs[i] = w;
-  }
+  adrs = __adrs_from_bytes(scratch);
 
   /* Set up buffer pointers within scratch:
    * [0..31] = adrs_buf (scratch for ADRS serialization)
@@ -103,6 +91,6 @@ export fn test_treehash(reg u64 root, reg u64 s_val, reg u64 t_val,
   __treehash(root, s32, t32, sk_seed, pub_seed, adrs_buf, adrs_rp,
              wots_buf, nodes_buf);
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }

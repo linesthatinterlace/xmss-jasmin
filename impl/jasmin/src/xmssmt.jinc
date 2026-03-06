@@ -280,7 +280,7 @@ fn __xmssmt_keygen(reg u64 pk, reg u64 sk, reg u64 mt_state,
   stack u64 s_pk s_sk s_mt s_seeds s_scratch;
   stack u8[N] root;
   reg u64 adrs_buf wots_buf r tmp src dst state_ptr;
-  reg u32 oid zero32;
+  reg u32 zero32;
   reg u8 b;
   inline int layer j;
 
@@ -386,9 +386,10 @@ fn __xmssmt_keygen(reg u64 pk, reg u64 sk, reg u64 mt_state,
 
   /* Serialize PK: OID(4) | root(N) | SEED(N) */
   pk = s_pk;
-  oid = XMSSMT_OID;
-  oid = #BSWAP_32(oid);
-  [:u32 pk] = oid;
+  b = (XMSSMT_OID >> 24) & 0xFF; [:u8 pk + 0] = b;
+  b = (XMSSMT_OID >> 16) & 0xFF; [:u8 pk + 1] = b;
+  b = (XMSSMT_OID >>  8) & 0xFF; [:u8 pk + 2] = b;
+  b =  XMSSMT_OID        & 0xFF; [:u8 pk + 3] = b;
 
   /* root already at pk+MT_PK_ROOT_OFF from treehash_init */
 
@@ -406,9 +407,10 @@ fn __xmssmt_keygen(reg u64 pk, reg u64 sk, reg u64 mt_state,
 
   /* Serialize SK: OID(4) | idx(IDX_BYTES) | SK_SEED(N) | SK_PRF(N) | root(N) | SEED(N) */
   sk = s_sk;
-  oid = XMSSMT_OID;
-  oid = #BSWAP_32(oid);
-  [:u32 sk] = oid;
+  b = (XMSSMT_OID >> 24) & 0xFF; [:u8 sk + 0] = b;
+  b = (XMSSMT_OID >> 16) & 0xFF; [:u8 sk + 1] = b;
+  b = (XMSSMT_OID >>  8) & 0xFF; [:u8 sk + 2] = b;
+  b =  XMSSMT_OID        & 0xFF; [:u8 sk + 3] = b;
 
   /* idx = 0 */
   sk = s_sk;
@@ -463,7 +465,7 @@ fn __xmssmt_keygen(reg u64 pk, reg u64 sk, reg u64 mt_state,
     [:u8 dst + j] = b;
   }
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
 
@@ -912,7 +914,7 @@ fn __xmssmt_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
       }
     }
 
-    ?{}, r = #set0();
+    r = 0;
   }
 
   return r;

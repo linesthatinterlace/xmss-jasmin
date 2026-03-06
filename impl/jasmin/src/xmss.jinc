@@ -49,7 +49,6 @@ fn __xmss_keygen(reg u64 pk, reg u64 sk, reg u64 state,
   reg ptr u32[8] adrs_rp;
   stack u64 s_pk s_sk s_state s_seeds s_scratch;
   reg u64 adrs_buf wots_buf r tmp src dst;
-  reg u32 oid;
   reg u8 b;
   inline int j;
 
@@ -82,9 +81,10 @@ fn __xmss_keygen(reg u64 pk, reg u64 sk, reg u64 state,
   /* PK: OID(4) | root(32) | SEED(32) */
   /* root already at pk+4 from treehash_init */
   pk = s_pk;
-  oid = XMSS_OID;
-  oid = #BSWAP_32(oid);
-  [:u32 pk] = oid;
+  b = (XMSS_OID >> 24) & 0xFF; [:u8 pk + 0] = b;
+  b = (XMSS_OID >> 16) & 0xFF; [:u8 pk + 1] = b;
+  b = (XMSS_OID >>  8) & 0xFF; [:u8 pk + 2] = b;
+  b =  XMSS_OID        & 0xFF; [:u8 pk + 3] = b;
 
   /* Copy SEED to pk+PK_SEED_OFF */
   seeds = s_seeds;
@@ -101,9 +101,10 @@ fn __xmss_keygen(reg u64 pk, reg u64 sk, reg u64 state,
   /* Step 3: Serialize SK */
   /* SK: OID(4) | idx(4) | SK_SEED(32) | SK_PRF(32) | root(32) | SEED(32) */
   sk = s_sk;
-  oid = XMSS_OID;
-  oid = #BSWAP_32(oid);
-  [:u32 sk] = oid;
+  b = (XMSS_OID >> 24) & 0xFF; [:u8 sk + 0] = b;
+  b = (XMSS_OID >> 16) & 0xFF; [:u8 sk + 1] = b;
+  b = (XMSS_OID >>  8) & 0xFF; [:u8 sk + 2] = b;
+  b =  XMSS_OID        & 0xFF; [:u8 sk + 3] = b;
 
   /* idx = 0 (4 bytes) */
   sk = s_sk;
@@ -158,7 +159,7 @@ fn __xmss_keygen(reg u64 pk, reg u64 sk, reg u64 state,
     [:u8 dst + j] = b;
   }
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
 
@@ -326,7 +327,7 @@ fn __xmss_sign(reg u64 sig, reg u64 msg, reg u64 msglen,
     adrs_rp = adrs;
     __bds_treehash_update(state, zero32, src, tmp, adrs_buf, adrs_rp, wots_buf);
 
-    ?{}, r = #set0();
+    r = 0;
   }
 
   return r;
