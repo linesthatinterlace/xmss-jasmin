@@ -4,7 +4,7 @@
 # Source directories (src/, test/, api/) stay clean.
 
 JASMINC  := jasminc
-JFLAGS   := -arch x86-64
+JFLAGS   := -arch x86-64 -set0
 CC       := gcc
 CFLAGS   := -Wall -Wextra -g -no-pie  # -no-pie: Jasmin asm uses absolute addressing
 BUILD    := build

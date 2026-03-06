@@ -44,7 +44,7 @@ export fn test_adrs_to_bytes(reg u64 out) -> reg u64 {
     [:u64 out + 8 * i] = v64;
   }
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
 
@@ -80,6 +80,6 @@ export fn test_adrs_set_type_zeroes(reg u64 out) -> reg u64 {
     [:u64 out + 8 * i] = v64;
   }
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }

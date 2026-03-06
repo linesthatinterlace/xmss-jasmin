@@ -61,9 +61,7 @@ inline fn __load_block(reg u64 src) -> stack u8[64] {
 
 /* SHA-256 compression function (FIPS 180-4 §6.2.2).
  * state: 8 x u32 hash state (modified in place)
- * block: 64-byte input block (reg ptr)
- *
- * Uses #ROR_32 for rotation (x86-specific). */
+ * block: 64-byte input block (reg ptr) */
 inline fn __sha256_compress(stack u32[8] state, stack u8[64] block)
     -> stack u32[8] {
   stack u32[64] w;
@@ -81,19 +79,15 @@ inline fn __sha256_compress(stack u32[8] state, stack u8[64] block)
   /* Message schedule: W[16..63] */
   for i = 16 to 64 {
     tmp = w[i - 15];
-    s0 = tmp;
-    _, _, s0 = #ROR_32(s0, 7);
-    tmp2 = tmp;
-    _, _, tmp2 = #ROR_32(tmp2, 18);
+    s0 = tmp; s0 >>r= 7;
+    tmp2 = tmp; tmp2 >>r= 18;
     s0 ^= tmp2;
     tmp >>= 3;
     s0 ^= tmp;
 
     tmp = w[i - 2];
-    s1 = tmp;
-    _, _, s1 = #ROR_32(s1, 17);
-    tmp2 = tmp;
-    _, _, tmp2 = #ROR_32(tmp2, 19);
+    s1 = tmp; s1 >>r= 17;
+    tmp2 = tmp; tmp2 >>r= 19;
     s1 ^= tmp2;
     tmp >>= 10;
     s1 ^= tmp;
@@ -110,13 +104,10 @@ inline fn __sha256_compress(stack u32[8] state, stack u8[64] block)
   e = state[4]; f = state[5]; g = state[6]; h = state[7];
 
   for i = 0 to 64 {
-    s1 = e;
-    _, _, s1 = #ROR_32(s1, 6);
-    tmp = e;
-    _, _, tmp = #ROR_32(tmp, 11);
+    s1 = e; s1 >>r= 6;
+    tmp = e; tmp >>r= 11;
     s1 ^= tmp;
-    tmp = e;
-    _, _, tmp = #ROR_32(tmp, 25);
+    tmp = e; tmp >>r= 25;
     s1 ^= tmp;
 
     ch = e;
@@ -134,13 +125,10 @@ inline fn __sha256_compress(stack u32[8] state, stack u8[64] block)
     tmp = w[i];
     t1 += tmp;
 
-    s0 = a;
-    _, _, s0 = #ROR_32(s0, 2);
-    tmp = a;
-    _, _, tmp = #ROR_32(tmp, 13);
+    s0 = a; s0 >>r= 2;
+    tmp = a; tmp >>r= 13;
     s0 ^= tmp;
-    tmp = a;
-    _, _, tmp = #ROR_32(tmp, 22);
+    tmp = a; tmp >>r= 22;
     s0 ^= tmp;
 
     maj = a;

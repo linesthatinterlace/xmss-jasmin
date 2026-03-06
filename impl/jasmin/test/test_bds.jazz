@@ -28,8 +28,6 @@ export fn test_bds_treehash_init(reg u64 root, reg u64 state,
   reg ptr u32[8] adrs_rp;
   stack u64 s_root s_state s_sk s_pub;
   reg u64 adrs_buf wots_buf r;
-  reg u32 w;
-  inline int i;
 
   _ = #init_msf();
 
@@ -39,11 +37,7 @@ export fn test_bds_treehash_init(reg u64 root, reg u64 state,
   s_pub = pub_seed;
 
   /* Load ADRS from first 32 bytes of scratch (big-endian → host) */
-  for i = 0 to 8 {
-    w = [:u32 scratch + 4 * i];
-    w = #BSWAP_32(w);
-    adrs[i] = w;
-  }
+  adrs = __adrs_from_bytes(scratch);
 
   adrs_buf  = scratch;
   wots_buf  = scratch;
@@ -57,7 +51,7 @@ export fn test_bds_treehash_init(reg u64 root, reg u64 state,
 
   __bds_treehash_init(root, state, sk_seed, pub_seed, adrs_buf, adrs_rp, wots_buf);
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
 
@@ -72,8 +66,7 @@ export fn test_bds_round(reg u64 state, reg u64 leaf_idx_u64,
   reg ptr u32[8] adrs_rp;
   stack u64 s_state s_sk s_pub;
   reg u64 adrs_buf wots_buf r;
-  reg u32 leaf_idx w;
-  inline int i;
+  reg u32 leaf_idx;
 
   _ = #init_msf();
 
@@ -81,11 +74,7 @@ export fn test_bds_round(reg u64 state, reg u64 leaf_idx_u64,
   s_sk = sk_seed;
   s_pub = pub_seed;
 
-  for i = 0 to 8 {
-    w = [:u32 scratch + 4 * i];
-    w = #BSWAP_32(w);
-    adrs[i] = w;
-  }
+  adrs = __adrs_from_bytes(scratch);
 
   adrs_buf  = scratch;
   wots_buf  = scratch;
@@ -99,7 +88,7 @@ export fn test_bds_round(reg u64 state, reg u64 leaf_idx_u64,
 
   __bds_round(state, leaf_idx, sk_seed, pub_seed, adrs_buf, adrs_rp, wots_buf);
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
 
@@ -114,8 +103,7 @@ export fn test_bds_treehash_update(reg u64 state, reg u64 updates_u64,
   reg ptr u32[8] adrs_rp;
   stack u64 s_state s_sk s_pub;
   reg u64 adrs_buf wots_buf r;
-  reg u32 updates w;
-  inline int i;
+  reg u32 updates;
 
   _ = #init_msf();
 
@@ -123,11 +111,7 @@ export fn test_bds_treehash_update(reg u64 state, reg u64 updates_u64,
   s_sk = sk_seed;
   s_pub = pub_seed;
 
-  for i = 0 to 8 {
-    w = [:u32 scratch + 4 * i];
-    w = #BSWAP_32(w);
-    adrs[i] = w;
-  }
+  adrs = __adrs_from_bytes(scratch);
 
   adrs_buf  = scratch;
   wots_buf  = scratch;
@@ -141,6 +125,6 @@ export fn test_bds_treehash_update(reg u64 state, reg u64 updates_u64,
 
   __bds_treehash_update(state, updates, sk_seed, pub_seed, adrs_buf, adrs_rp, wots_buf);
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }

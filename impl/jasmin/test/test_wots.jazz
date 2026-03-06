@@ -17,22 +17,15 @@ export fn test_wots_gen_pk(reg u64 pk, reg u64 sk_seed, reg u64 pub_seed,
                            reg u64 adrs_ptr) -> reg u64 {
   stack u32[8] adrs;
   reg ptr u32[8] adrs_rp;
-  reg u32 w;
   reg u64 r;
-  inline int i;
 
   _ = #init_msf();
 
-  for i = 0 to 8 {
-    w = [:u32 adrs_ptr + 4 * i];
-    w = #BSWAP_32(w);
-    adrs[i] = w;
-  }
-
+  adrs = __adrs_from_bytes(adrs_ptr);
   adrs_rp = adrs;
   __wots_gen_pk(pk, sk_seed, pub_seed, adrs_rp);
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
 
@@ -43,9 +36,7 @@ export fn test_wots_sign(reg u64 sig, reg u64 msg, reg u64 sk_seed,
   stack u32[8] adrs;
   reg ptr u32[8] adrs_rp;
   stack u64 s_sig s_msg s_sk s_pub;
-  reg u32 w;
   reg u64 r;
-  inline int i;
 
   _ = #init_msf();
 
@@ -54,11 +45,7 @@ export fn test_wots_sign(reg u64 sig, reg u64 msg, reg u64 sk_seed,
   s_sk = sk_seed;
   s_pub = pub_seed;
 
-  for i = 0 to 8 {
-    w = [:u32 adrs_ptr + 4 * i];
-    w = #BSWAP_32(w);
-    adrs[i] = w;
-  }
+  adrs = __adrs_from_bytes(adrs_ptr);
 
   sig = s_sig;
   msg = s_msg;
@@ -68,7 +55,7 @@ export fn test_wots_sign(reg u64 sig, reg u64 msg, reg u64 sk_seed,
 
   __wots_sign(sig, msg, sk_seed, pub_seed, adrs_rp);
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }
 
@@ -79,9 +66,7 @@ export fn test_wots_pk_from_sig(reg u64 pk, reg u64 sig, reg u64 msg,
   stack u32[8] adrs;
   reg ptr u32[8] adrs_rp;
   stack u64 s_pk s_sig s_msg s_pub;
-  reg u32 w;
   reg u64 r;
-  inline int i;
 
   _ = #init_msf();
 
@@ -90,11 +75,7 @@ export fn test_wots_pk_from_sig(reg u64 pk, reg u64 sig, reg u64 msg,
   s_msg = msg;
   s_pub = pub_seed;
 
-  for i = 0 to 8 {
-    w = [:u32 adrs_ptr + 4 * i];
-    w = #BSWAP_32(w);
-    adrs[i] = w;
-  }
+  adrs = __adrs_from_bytes(adrs_ptr);
 
   pk = s_pk;
   sig = s_sig;
@@ -104,6 +85,6 @@ export fn test_wots_pk_from_sig(reg u64 pk, reg u64 sig, reg u64 msg,
 
   __wots_pk_from_sig(pk, sig, msg, pub_seed, adrs_rp);
 
-  ?{}, r = #set0();
+  r = 0;
   return r;
 }

@@ -1396,7 +1396,7 @@ fn __bds_state_update(reg u64 state, reg u64 sk_seed, reg u64 seed,
     idx32 += 1;
     __bds_next_leaf_set(state, idx32);
 
-    ?{}, ret = #set0();
+    ret = 0;
   }
 
   return ret;

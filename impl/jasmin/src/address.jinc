@@ -88,18 +88,34 @@ inline fn __adrs_set_key_and_mask(stack u32[8] adrs, reg u32 km)
   return adrs;
 }
 
-/* Serialise ADRS to 32 bytes in big-endian.
- * Uses #BSWAP_32 (x86-specific). For RISC-V, replace with:
- *   ((w >> 24) | ((w >> 8) & 0xff00) | ((w << 8) & 0xff0000) | (w << 24))
- */
+/* Deserialise 32 big-endian bytes into an ADRS u32[8]. */
+inline fn __adrs_from_bytes(reg u64 adrs_ptr) -> stack u32[8] {
+  stack u32[8] adrs;
+  reg u32 w tmp;
+  reg u8 b;
+  inline int i;
+  for i = 0 to 8 {
+    b = [:u8 adrs_ptr + 4*i + 0]; w = (32u)b; w <<= 24;
+    b = [:u8 adrs_ptr + 4*i + 1]; tmp = (32u)b; tmp <<= 16; w |= tmp;
+    b = [:u8 adrs_ptr + 4*i + 2]; tmp = (32u)b; tmp <<=  8; w |= tmp;
+    b = [:u8 adrs_ptr + 4*i + 3]; tmp = (32u)b;              w |= tmp;
+    adrs[i] = w;
+  }
+  return adrs;
+}
+
+/* Serialise ADRS to 32 bytes in big-endian. */
 inline fn __adrs_to_bytes(stack u32[8] adrs) -> stack u8[32] {
   stack u8[32] buf;
-  reg u32 w;
+  reg u32 w tmp;
+  reg u8 b;
   inline int i;
   for i = 0 to 8 {
     w = adrs[i];
-    w = #BSWAP_32(w);
-    buf[:u32 i] = w;
+    tmp = w; tmp >>= 24; b = (8u)tmp; buf[4*i + 0] = b;
+    tmp = w; tmp >>= 16; b = (8u)tmp; buf[4*i + 1] = b;
+    tmp = w; tmp >>=  8; b = (8u)tmp; buf[4*i + 2] = b;
+                          b = (8u)w;   buf[4*i + 3] = b;
   }
   return buf;
 }
