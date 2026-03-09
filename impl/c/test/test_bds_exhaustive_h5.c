@@ -8,7 +8,11 @@
  *   - All treehash completion/consumption cycles
  *   - All retain node usage patterns
  *   - High-tau events (idx = 2^k - 1)
- *   - BDS exhaustion edge cases
+ *   - Layer boundary crossing (layer-0 tree exhaustion triggers layer-1)
+ *
+ * Note: no explicit XMSS_ERR_EXHAUSTED check — the MT API exhausts the
+ * layer-0 tree at index 32 and advances to layer-1 naturally, so exhaustion
+ * is exercised structurally rather than by an error-return assertion.
  *
  * The treehash completion assertion in bds.c (active in debug builds) provides
  * the invariant check: if any treehash instance is consumed before completion,
