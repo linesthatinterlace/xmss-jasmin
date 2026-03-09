@@ -36,6 +36,52 @@ inline fn __bytes_to_ull(reg u64 inp, inline int len) -> reg u64 {
   return val;
 }
 
+/* __load_be32 — load a big-endian u32 from 4 bytes at compile-time offset off
+ * in a 64-byte block.  Used by the SHA-256 message schedule. */
+inline fn __load_be32(stack u8[64] blk, inline int off) -> reg u32 {
+  reg u32 w tmp;
+  reg u8 b;
+  b = blk[off + 0]; w = (32u)b; w <<= 24;
+  b = blk[off + 1]; tmp = (32u)b; tmp <<= 16; w |= tmp;
+  b = blk[off + 2]; tmp = (32u)b; tmp <<=  8; w |= tmp;
+  b = blk[off + 3]; tmp = (32u)b;              w |= tmp;
+  return w;
+}
+
+/* __u32x8_to_be_bytes — serialise a u32[8] word array to 32 big-endian bytes.
+ * Used by both the ADRS serialiser and the SHA-256 hash output path. */
+inline fn __u32x8_to_be_bytes(stack u32[8] words) -> stack u8[32] {
+  stack u8[32] buf;
+  reg u32 w tmp;
+  reg u8 b;
+  inline int i;
+  for i = 0 to 8 {
+    w = words[i];
+    tmp = w; tmp >>= 24; b = (8u)tmp; buf[4*i + 0] = b;
+    tmp = w; tmp >>= 16; b = (8u)tmp; buf[4*i + 1] = b;
+    tmp = w; tmp >>=  8; b = (8u)tmp; buf[4*i + 2] = b;
+                          b = (8u)w;  buf[4*i + 3] = b;
+  }
+  return buf;
+}
+
+/* __store_be64 — write a u64 as 8 big-endian bytes into a 64-byte block
+ * at compile-time offset off.  Used for SHA-256 message-length padding. */
+inline fn __store_be64(stack u8[64] blk, inline int off, reg u64 v)
+    -> stack u8[64] {
+  reg u64 tmp;
+  reg u8 b;
+  tmp = v; tmp >>= 56; b = (8u)tmp; blk[off + 0] = b;
+  tmp = v; tmp >>= 48; b = (8u)tmp; blk[off + 1] = b;
+  tmp = v; tmp >>= 40; b = (8u)tmp; blk[off + 2] = b;
+  tmp = v; tmp >>= 32; b = (8u)tmp; blk[off + 3] = b;
+  tmp = v; tmp >>= 24; b = (8u)tmp; blk[off + 4] = b;
+  tmp = v; tmp >>= 16; b = (8u)tmp; blk[off + 5] = b;
+  tmp = v; tmp >>=  8; b = (8u)tmp; blk[off + 6] = b;
+                        b = (8u)v;  blk[off + 7] = b;
+  return blk;
+}
+
 /* memzero — zero len bytes at ptr.
  * len must be a compile-time constant. */
 inline fn __memzero(reg u64 p, inline int len) {

@@ -107,15 +107,6 @@ inline fn __adrs_from_bytes(reg u64 adrs_ptr) -> stack u32[8] {
 /* Serialise ADRS to 32 bytes in big-endian. */
 inline fn __adrs_to_bytes(stack u32[8] adrs) -> stack u8[32] {
   stack u8[32] buf;
-  reg u32 w tmp;
-  reg u8 b;
-  inline int i;
-  for i = 0 to 8 {
-    w = adrs[i];
-    tmp = w; tmp >>= 24; b = (8u)tmp; buf[4*i + 0] = b;
-    tmp = w; tmp >>= 16; b = (8u)tmp; buf[4*i + 1] = b;
-    tmp = w; tmp >>=  8; b = (8u)tmp; buf[4*i + 2] = b;
-                          b = (8u)w;   buf[4*i + 3] = b;
-  }
+  buf = __u32x8_to_be_bytes(adrs);
   return buf;
 }

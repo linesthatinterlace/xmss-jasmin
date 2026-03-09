@@ -27,8 +27,8 @@ UNIT_TESTS := test_address test_utils test_sha256 \
 JAZZ_FILES := $(addprefix test/,$(addsuffix .jazz,$(UNIT_TESTS)))
 
 # Production API names
-API_NAMES := xmss_sha2_10_256 xmss_sha2_16_256 xmss_sha2_20_256 \
-             xmssmt_sha2_20_2_256 xmssmt_sha2_20_4_256
+API_NAMES := xmss_sha2_10_256_amd64 xmss_sha2_16_256_amd64 xmss_sha2_20_256_amd64 \
+             xmssmt_sha2_20_2_256_amd64 xmssmt_sha2_20_4_256_amd64
 
 API_JAZZ_FILES := $(addprefix api/,$(addsuffix .jazz,$(API_NAMES)))
 
@@ -79,19 +79,19 @@ $(BUILD)/test/test_%: test/test_%.c $(BUILD)/test/test_%.s | $(BUILD)/test
 
 # --- API test binaries: C test + API assembly ---
 
-$(BUILD)/test/test_api_xmss_sha2_10_256: test/test_api_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256.s | $(BUILD)/test
+$(BUILD)/test/test_api_xmss_sha2_10_256: test/test_api_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256_amd64.s | $(BUILD)/test
 	$(CC) -o $@ $^ $(CFLAGS)
 
-$(BUILD)/test/test_api_xmss_sha2_16_256: test/test_api_xmss_sha2_16_256.c $(BUILD)/api/xmss_sha2_16_256.s | $(BUILD)/test
+$(BUILD)/test/test_api_xmss_sha2_16_256: test/test_api_xmss_sha2_16_256.c $(BUILD)/api/xmss_sha2_16_256_amd64.s | $(BUILD)/test
 	$(CC) -o $@ $^ $(CFLAGS)
 
-$(BUILD)/test/test_api_xmss_sha2_20_256: test/test_api_xmss_sha2_20_256.c $(BUILD)/api/xmss_sha2_20_256.s | $(BUILD)/test
+$(BUILD)/test/test_api_xmss_sha2_20_256: test/test_api_xmss_sha2_20_256.c $(BUILD)/api/xmss_sha2_20_256_amd64.s | $(BUILD)/test
 	$(CC) -o $@ $^ $(CFLAGS)
 
-$(BUILD)/test/test_api_xmssmt_sha2_20_2_256: test/test_api_xmssmt_sha2_20_2_256.c $(BUILD)/api/xmssmt_sha2_20_2_256.s | $(BUILD)/test
+$(BUILD)/test/test_api_xmssmt_sha2_20_2_256: test/test_api_xmssmt_sha2_20_2_256.c $(BUILD)/api/xmssmt_sha2_20_2_256_amd64.s | $(BUILD)/test
 	$(CC) -o $@ $^ $(CFLAGS)
 
-$(BUILD)/test/test_api_xmssmt_sha2_20_4_256: test/test_api_xmssmt_sha2_20_4_256.c $(BUILD)/api/xmssmt_sha2_20_4_256.s | $(BUILD)/test
+$(BUILD)/test/test_api_xmssmt_sha2_20_4_256: test/test_api_xmssmt_sha2_20_4_256.c $(BUILD)/api/xmssmt_sha2_20_4_256_amd64.s | $(BUILD)/test
 	$(CC) -o $@ $^ $(CFLAGS)
 
 # --- C library (for interop tests) ---
@@ -101,22 +101,22 @@ $(C_LIB):
 
 # --- KAT tests: C test + API assembly + shake_local.c ---
 
-$(BUILD)/test/test_kat_xmss_sha2_10_256: test/test_kat_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256.s $(SHAKE_LOCAL_C) $(SHAKE_LOCAL_H) | $(BUILD)/test
-	$(CC) -o $@ test/test_kat_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256.s $(SHAKE_LOCAL_C) -I$(C_IMPL)/src/hash $(CFLAGS)
+$(BUILD)/test/test_kat_xmss_sha2_10_256: test/test_kat_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256_amd64.s $(SHAKE_LOCAL_C) $(SHAKE_LOCAL_H) | $(BUILD)/test
+	$(CC) -o $@ test/test_kat_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256_amd64.s $(SHAKE_LOCAL_C) -I$(C_IMPL)/src/hash $(CFLAGS)
 
-$(BUILD)/test/test_kat_xmssmt_sha2_20_2_256: test/test_kat_xmssmt_sha2_20_2_256.c $(BUILD)/api/xmssmt_sha2_20_2_256.s $(SHAKE_LOCAL_C) $(SHAKE_LOCAL_H) | $(BUILD)/test
-	$(CC) -o $@ test/test_kat_xmssmt_sha2_20_2_256.c $(BUILD)/api/xmssmt_sha2_20_2_256.s $(SHAKE_LOCAL_C) -I$(C_IMPL)/src/hash $(CFLAGS)
+$(BUILD)/test/test_kat_xmssmt_sha2_20_2_256: test/test_kat_xmssmt_sha2_20_2_256.c $(BUILD)/api/xmssmt_sha2_20_2_256_amd64.s $(SHAKE_LOCAL_C) $(SHAKE_LOCAL_H) | $(BUILD)/test
+	$(CC) -o $@ test/test_kat_xmssmt_sha2_20_2_256.c $(BUILD)/api/xmssmt_sha2_20_2_256_amd64.s $(SHAKE_LOCAL_C) -I$(C_IMPL)/src/hash $(CFLAGS)
 
 # --- Interop tests: C test + API assembly + libxmss.a ---
 
-$(BUILD)/test/test_interop_xmss_sha2_10_256: test/test_interop_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256.s $(C_LIB) | $(BUILD)/test
-	$(CC) -o $@ test/test_interop_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256.s $(C_LIB) -I$(C_IMPL)/include $(CFLAGS)
+$(BUILD)/test/test_interop_xmss_sha2_10_256: test/test_interop_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256_amd64.s $(C_LIB) | $(BUILD)/test
+	$(CC) -o $@ test/test_interop_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256_amd64.s $(C_LIB) -I$(C_IMPL)/include $(CFLAGS)
 
-$(BUILD)/test/test_interop_xmssmt_sha2_20_2_256: test/test_interop_xmssmt_sha2_20_2_256.c $(BUILD)/api/xmssmt_sha2_20_2_256.s $(C_LIB) | $(BUILD)/test
-	$(CC) -o $@ test/test_interop_xmssmt_sha2_20_2_256.c $(BUILD)/api/xmssmt_sha2_20_2_256.s $(C_LIB) -I$(C_IMPL)/include $(CFLAGS)
+$(BUILD)/test/test_interop_xmssmt_sha2_20_2_256: test/test_interop_xmssmt_sha2_20_2_256.c $(BUILD)/api/xmssmt_sha2_20_2_256_amd64.s $(C_LIB) | $(BUILD)/test
+	$(CC) -o $@ test/test_interop_xmssmt_sha2_20_2_256.c $(BUILD)/api/xmssmt_sha2_20_2_256_amd64.s $(C_LIB) -I$(C_IMPL)/include $(CFLAGS)
 
-$(BUILD)/test/test_interop_deep_xmss_sha2_10_256: test/test_interop_deep_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256.s $(C_LIB) | $(BUILD)/test
-	$(CC) -o $@ test/test_interop_deep_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256.s $(C_LIB) -I$(C_IMPL)/include $(CFLAGS)
+$(BUILD)/test/test_interop_deep_xmss_sha2_10_256: test/test_interop_deep_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256_amd64.s $(C_LIB) | $(BUILD)/test
+	$(CC) -o $@ test/test_interop_deep_xmss_sha2_10_256.c $(BUILD)/api/xmss_sha2_10_256_amd64.s $(C_LIB) -I$(C_IMPL)/include $(CFLAGS)
 
 # --- Test runners ---
 

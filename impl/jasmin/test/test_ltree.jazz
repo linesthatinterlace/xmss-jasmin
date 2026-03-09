@@ -1,15 +1,6 @@
 /* test_ltree.jazz — test harness for L-tree */
 
-param int N       = 32;
-param int W       = 16;
-param int LOG2_W  = 4;
-param int LEN1    = 64;
-param int LEN2    = 3;
-param int LEN     = 67;
-
-require "../src/address.jinc"
-require "../src/hash/sha256_n32.jinc"
-require "../src/ltree.jinc"
+require "../src/params_xmss_sha2_10_256.jinc"
 
 /* Export ltree for C test harness */
 #[ct = "public × public × public × public → public"]
