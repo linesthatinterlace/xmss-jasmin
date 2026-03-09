@@ -31,7 +31,6 @@ static void base_w(const xmss_params *p,
                    const uint8_t *in)
 {
     uint32_t in_off  = 0;
-    uint32_t out_off = 0;
     uint32_t total   = 0;
     uint32_t bits    = 0;
     uint32_t consumed;
@@ -42,10 +41,9 @@ static void base_w(const xmss_params *p,
             total = in[in_off++];
             bits  = 8;
         }
-        bits  -= p->log2_w;
-        out[out_off++] = (total >> bits) & mask;
+        bits       -= p->log2_w;
+        out[consumed] = (total >> bits) & mask;
     }
-    (void)out_off;
 }
 
 /* ====================================================================

@@ -14,7 +14,7 @@
 #include "../include/xmss/types.h"
 #include "address.h"
 
-/* Encode a 32-bit value in big-endian into a word slot */
+/* Store a 32-bit value in a word slot (native; serialised big-endian by xmss_adrs_to_bytes) */
 static void set_word(xmss_adrs_t *a, uint32_t idx, uint32_t val)
 {
     a->w[idx] = val;
@@ -36,10 +36,10 @@ void xmss_adrs_set_type(xmss_adrs_t *a, uint32_t type)
 {
     set_word(a, 3, type);
     /* RFC 8391 §2.5: zero type-specific fields on type change */
-    a->w[4] = 0;
-    a->w[5] = 0;
-    a->w[6] = 0;
-    a->w[7] = 0;
+    set_word(a, 4, 0);
+    set_word(a, 5, 0);
+    set_word(a, 6, 0);
+    set_word(a, 7, 0);
 }
 
 /* OTS address: word 4 = OTS address */

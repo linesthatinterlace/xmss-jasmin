@@ -9,4 +9,4 @@
 	url = https://github.com/post-quantum-cryptography/KAT
 [submodule "third_party/libjade"]
 	path = third_party/libjade
-	url = git@github.com:formosa-crypto/libjade.git
+	url = https://github.com/formosa-crypto/libjade.git
