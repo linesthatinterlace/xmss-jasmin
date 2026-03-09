@@ -212,7 +212,7 @@ uint32_t xmss_bds_serialized_size(const xmss_params *p, uint32_t bds_k);
  * @state:  BDS state to serialize.
  * @bds_k:  Retain parameter (same as used in keygen).
  *
- * Returns XMSS_OK on success.
+ * Returns XMSS_OK on success, XMSS_ERR_PARAMS if @bds_k is invalid.
  */
 int xmss_bds_serialize(const xmss_params *p, uint8_t *buf,
                        const xmss_bds_state *state, uint32_t bds_k);
@@ -225,7 +225,7 @@ int xmss_bds_serialize(const xmss_params *p, uint8_t *buf,
  * @buf:    Input buffer (xmss_bds_serialized_size() bytes).
  * @bds_k:  Retain parameter (same as used in keygen).
  *
- * Returns XMSS_OK on success.
+ * Returns XMSS_OK on success, XMSS_ERR_PARAMS if @bds_k is invalid.
  */
 int xmss_bds_deserialize(const xmss_params *p, xmss_bds_state *state,
                          const uint8_t *buf, uint32_t bds_k);
