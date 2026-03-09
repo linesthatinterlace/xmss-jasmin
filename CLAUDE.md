@@ -23,7 +23,7 @@ GitHub Actions CI runs on every push and PR:
 - **`ci.yml`** (every push/PR, ~10 min):
   - **C (native)**: gcc + clang (`-Werror`), three-tier test organisation:
     - Tier 1 "fast" (< 30s): params, address, hash, wots, utils — fail fast.
-    - Tier 2 "core" (< 5 min): sign/verify roundtrips, BDS serial, BDS exhaustive (H=5+H=10), XMSS-MT boundary.
+    - Tier 2 "core" (< 5 min): sign/verify roundtrips, BDS serial, BDS exhaustive H=5, XMSS-MT boundary.
     - Tier 3 "deep" (5-15 min): KAT (512 sigs), XMSS-MT KAT, ACVP cross-checks.
   - **Jasmin**: build job (compile + CT checks) → three parallel test jobs via artifact sharing:
     - `jasmin-unit`: 9 unit tests (seconds)
@@ -72,7 +72,9 @@ The following defences are in place:
 
 1. **Treehash completion assertion** (C, `bds.c`): `assert(treehash[i].completed)` before consuming the node in `bds_round()`. Active in debug builds (`NDEBUG`), zero cost in release. Catches budget starvation at the point of corruption.
 
-2. **Exhaustive (H, K) matrix** (C, `test_bds_exhaustive.c`): Signs and verifies EVERY index through a full tree for 4 (H, K) combos — H=5 K=0 (32 sigs, <1s; the only valid K for H=5) and H=10 K=0/2/4 (1024 sigs each, ~2-4 min). Includes post-sign BDS state validation and key exhaustion checks.
+2. **Exhaustive (H, K) matrix** (C, split into two binaries): Signs and verifies EVERY index through a full tree.
+   - `test_bds_exhaustive_h5.c` (core tier, <1s): H=5 K=0 via XMSS-MT 20/4 tree_height=5 — 32 sigs. The only valid K for H=5.
+   - `test_bds_exhaustive_h10.c` (deep tier, ~10 min): H=10 K=0/2/4 via XMSS-SHA2_10_256 — 1024 sigs each. Includes post-sign BDS state validation and key exhaustion checks.
 
 3. **Deep cross-implementation interop** (Jasmin, `test_interop_deep_xmss_sha2_10_256.c`): Signs 64 messages with both C and Jasmin from the same seed. After EACH signature, compares:
    - Signatures byte-for-byte (auth path divergence = BDS state bug)
