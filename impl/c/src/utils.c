@@ -5,6 +5,7 @@
  * xmss_memzero: secure memory clearing (volatile-pointer idiom).
  * ct_memcmp: constant-time memory comparison (for signature verification).
  */
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -15,11 +16,13 @@
  * ull_to_bytes() - Encode a uint64_t in big-endian into len bytes.
  *
  * RFC 8391 §2.4: toByte(x, n) converts x to an n-byte big-endian string.
- * Writes exactly len bytes; truncates if x is too large for len bytes.
+ * Writes exactly len bytes; asserts len <= 8 and that val fits in len bytes.
  */
 void ull_to_bytes(uint8_t *out, uint32_t len, uint64_t val)
 {
     uint32_t i;
+    assert(len <= 8);
+    assert(len == 8 || (val >> (len * 8)) == 0);
     for (i = len; i > 0; i--) {
         out[i - 1] = (uint8_t)(val & 0xFF);
         val >>= 8;
@@ -35,6 +38,7 @@ uint64_t bytes_to_ull(const uint8_t *in, uint32_t len)
 {
     uint64_t val = 0;
     uint32_t i;
+    assert(len <= 8);
     for (i = 0; i < len; i++) {
         val = (val << 8) | in[i];
     }

@@ -94,9 +94,12 @@ static void test_ull_bytes(void)
     TEST("ull_to_bytes 4 max value",
          buf[0] == 0xFF && buf[1] == 0xFF && buf[2] == 0xFF && buf[3] == 0xFF);
 
-    /* Truncation: encoding 0x1234 into 1 byte yields low byte only */
-    ull_to_bytes(buf, 1, 0x1234ULL);
-    TEST_INT("ull_to_bytes truncation", buf[0], 0x34);
+    /* Values that exactly fit their encoding width */
+    ull_to_bytes(buf, 1, 0xFFULL);
+    TEST_INT("ull_to_bytes 1 max value", buf[0], 0xFF);
+
+    ull_to_bytes(buf, 2, 0xFFFFULL);
+    TEST("ull_to_bytes 2 max value", buf[0] == 0xFF && buf[1] == 0xFF);
 }
 
 /* ------------------------------------------------------------------ */
