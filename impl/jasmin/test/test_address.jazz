@@ -1,5 +1,6 @@
 /* test_address.jazz — export wrapper to test address.jinc from C */
 
+require "../src/utils.jinc"
 require "../src/address.jinc"
 
 /* Exercise all ADRS setters and serialize to bytes.

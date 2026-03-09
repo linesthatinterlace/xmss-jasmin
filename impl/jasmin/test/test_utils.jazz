@@ -58,3 +58,52 @@ export fn test_memzero_32(reg u64 p) -> reg u64 {
   r = 0;
   return r;
 }
+
+/* Load big-endian u32 from first 4 bytes of a 64-byte block. */
+#[ct = "public → secret"]
+export fn test_load_be32(reg u64 inp) -> reg u64 {
+  stack u8[64] blk;
+  reg u8 b;
+  reg u64 r;
+  inline int i;
+  _ = #init_msf();
+  reg u32 w;
+  for i = 0 to 64 { b = [:u8 inp + i]; blk[i] = b; }
+  w = __load_be32(blk, 0);
+  r = (64u)w;
+  return r;
+}
+
+/* Serialise 8 native-endian u32 words (read from inp) to 32 big-endian
+ * bytes written to out. */
+#[ct = "public × public → public"]
+export fn test_u32x8_to_be_bytes(reg u64 out, reg u64 inp) -> reg u64 {
+  stack u32[8] words;
+  stack u8[32] result;
+  reg u32 w;
+  reg u8 b;
+  reg u64 r;
+  inline int i;
+  _ = #init_msf();
+  for i = 0 to 8 { w = [:u32 inp + 4*i]; words[i] = w; }
+  result = __u32x8_to_be_bytes(words);
+  for i = 0 to 32 { b = result[i]; [:u8 out + i] = b; }
+  r = 0;
+  return r;
+}
+
+/* Write val as 8 big-endian bytes at offset 56 of a zeroed 64-byte block,
+ * then copy the whole block to out. */
+#[ct = "public × public → public"]
+export fn test_store_be64_off56(reg u64 out, reg u64 val) -> reg u64 {
+  stack u8[64] blk;
+  reg u8 b;
+  reg u64 r;
+  inline int i;
+  _ = #init_msf();
+  for i = 0 to 8 { blk[:u64 i] = 0; }
+  blk = __store_be64(blk, 56, val);
+  for i = 0 to 64 { b = blk[i]; [:u8 out + i] = b; }
+  r = 0;
+  return r;
+}
