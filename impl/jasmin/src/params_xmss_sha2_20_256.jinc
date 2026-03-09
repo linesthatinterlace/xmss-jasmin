@@ -1,0 +1,23 @@
+/* params_xmss_sha2_20_256.jinc — XMSS-SHA2_20_256 parameter set and require chain
+ *
+ * RFC 8391, OID 0x00000003: N=32, W=16, TREE_HEIGHT=20, BDS_K=2
+ */
+
+param int N           = 32;
+param int W           = 16;
+param int LOG2_W      = 4;
+param int LEN1        = 64;
+param int LEN2        = 3;
+param int LEN         = 67;
+param int TREE_HEIGHT = 20;
+param int BDS_K       = 2;
+param int XMSS_OID    = 0x00000003;
+
+require "utils.jinc"
+require "address.jinc"
+require "hash/sha256_n32.jinc"
+require "wots.jinc"
+require "ltree.jinc"
+require "treehash.jinc"
+require "bds.jinc"
+require "xmss.jinc"
