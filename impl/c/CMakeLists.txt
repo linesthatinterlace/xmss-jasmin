@@ -55,9 +55,9 @@ add_library(xmss STATIC
 )
 
 target_include_directories(xmss PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/src/hash
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/src/hash
 )
 
 # -----------------------------------------------------------------------
