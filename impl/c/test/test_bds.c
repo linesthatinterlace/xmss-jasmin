@@ -31,6 +31,11 @@ static void test_bds_k_validation(void)
     rc = xmss_keygen(&t.p, t.pk, t.sk, t.state, 12, test_randombytes);
     TEST("bds_k=12 (>h) rejected", rc == XMSS_ERR_PARAMS);
 
+    /* Issue #12: bds_k exceeding XMSS_MAX_BDS_K must be rejected even if
+     * it passes the other checks (>= 2, < H, (H-K) even). */
+    rc = xmss_keygen(&t.p, t.pk, t.sk, t.state, XMSS_MAX_BDS_K + 2, test_randombytes);
+    TEST("bds_k=MAX_BDS_K+2 (>MAX_BDS_K) rejected", rc == XMSS_ERR_PARAMS);
+
     test_rng_reset(1);
     rc = xmss_keygen(&t.p, t.pk, t.sk, t.state, 0, test_randombytes);
     TEST("bds_k=0 accepted", rc == XMSS_OK);
@@ -106,12 +111,116 @@ static void test_sequential_k(uint32_t oid, const char *name, uint32_t bds_k)
     xmss_test_ctx_free(&t);
 }
 
+/* ------------------------------------------------------------------ */
+/* Issue #18: sign with mismatched bds_k must be rejected             */
+/* ------------------------------------------------------------------ */
+static void test_bds_k_sign_mismatch(void)
+{
+    xmss_test_ctx t;
+    uint8_t msg[] = { 0x01, 0x02 };
+    int rc;
+
+    xmss_test_ctx_init(&t, OID_XMSS_SHA2_10_256);
+
+    /* Keygen with K=0, sign with K=2 */
+    test_rng_reset(10);
+    rc = xmss_keygen(&t.p, t.pk, t.sk, t.state, 0, test_randombytes);
+    TEST("mismatch: keygen K=0", rc == XMSS_OK);
+
+    rc = xmss_sign(&t.p, t.sig, msg, sizeof(msg), t.sk, t.state, 2);
+    TEST("mismatch: sign K=2 after keygen K=0 rejected", rc == XMSS_ERR_PARAMS);
+
+    /* Keygen with K=2, sign with K=4 */
+    test_rng_reset(20);
+    rc = xmss_keygen(&t.p, t.pk, t.sk, t.state, 2, test_randombytes);
+    TEST("mismatch: keygen K=2", rc == XMSS_OK);
+
+    rc = xmss_sign(&t.p, t.sig, msg, sizeof(msg), t.sk, t.state, 4);
+    TEST("mismatch: sign K=4 after keygen K=2 rejected", rc == XMSS_ERR_PARAMS);
+
+    /* Keygen with K=2, sign with K=0 */
+    test_rng_reset(30);
+    rc = xmss_keygen(&t.p, t.pk, t.sk, t.state, 2, test_randombytes);
+    TEST("mismatch: keygen K=2 (2)", rc == XMSS_OK);
+
+    rc = xmss_sign(&t.p, t.sig, msg, sizeof(msg), t.sk, t.state, 0);
+    TEST("mismatch: sign K=0 after keygen K=2 rejected", rc == XMSS_ERR_PARAMS);
+
+    xmss_test_ctx_free(&t);
+}
+
+/* ------------------------------------------------------------------ */
+/* Issue #18: MT sign with mismatched bds_k must be rejected          */
+/* ------------------------------------------------------------------ */
+static void test_bds_k_mt_sign_mismatch(void)
+{
+    xmss_mt_test_ctx t;
+    uint8_t msg[] = { 0x01, 0x02 };
+    int rc;
+
+    xmss_mt_test_ctx_init(&t, OID_XMSS_MT_SHA2_20_2_256);
+
+    /* Keygen with K=0, sign with K=2 */
+    test_rng_reset(50);
+    rc = xmss_mt_keygen(&t.p, t.pk, t.sk, t.state, 0, test_randombytes);
+    TEST("MT mismatch: keygen K=0", rc == XMSS_OK);
+
+    rc = xmss_mt_sign(&t.p, t.sig, msg, sizeof(msg), t.sk, t.state, 2);
+    TEST("MT mismatch: sign K=2 after keygen K=0 rejected", rc == XMSS_ERR_PARAMS);
+
+    /* Keygen with K=2, sign with K=0 */
+    test_rng_reset(60);
+    rc = xmss_mt_keygen(&t.p, t.pk, t.sk, t.state, 2, test_randombytes);
+    TEST("MT mismatch: keygen K=2", rc == XMSS_OK);
+
+    rc = xmss_mt_sign(&t.p, t.sig, msg, sizeof(msg), t.sk, t.state, 0);
+    TEST("MT mismatch: sign K=0 after keygen K=2 rejected", rc == XMSS_ERR_PARAMS);
+
+    xmss_mt_test_ctx_free(&t);
+}
+
+/* ------------------------------------------------------------------ */
+/* Serialize with invalid bds_k must be rejected                      */
+/* ------------------------------------------------------------------ */
+static void test_bds_k_serialize_invalid(void)
+{
+    xmss_test_ctx t;
+    int rc;
+    uint8_t buf[8192]; /* large enough for any serialized BDS state */
+
+    xmss_test_ctx_init(&t, OID_XMSS_SHA2_10_256);
+
+    /* Keygen with valid K=0 to get a state */
+    test_rng_reset(40);
+    rc = xmss_keygen(&t.p, t.pk, t.sk, t.state, 0, test_randombytes);
+    TEST("serialize: keygen K=0", rc == XMSS_OK);
+
+    /* Serialize with invalid K=6 */
+    rc = xmss_bds_serialize(&t.p, buf, t.state, 6);
+    TEST("serialize: K=6 rejected", rc == XMSS_ERR_PARAMS);
+
+    /* Deserialize with invalid K=6 */
+    rc = xmss_bds_deserialize(&t.p, t.state, buf, 6);
+    TEST("deserialize: K=6 rejected", rc == XMSS_ERR_PARAMS);
+
+    xmss_test_ctx_free(&t);
+}
+
 int main(void)
 {
     printf("=== test_bds (BDS-specific parameters) ===\n");
 
     printf("--- bds_k validation ---\n");
     test_bds_k_validation();
+
+    printf("--- bds_k sign mismatch ---\n");
+    test_bds_k_sign_mismatch();
+
+    printf("--- bds_k MT sign mismatch ---\n");
+    test_bds_k_mt_sign_mismatch();
+
+    printf("--- bds_k serialize validation ---\n");
+    test_bds_k_serialize_invalid();
 
     printf("--- roundtrip (k=2) ---\n");
     test_roundtrip_k(OID_XMSS_SHA2_10_256,  "XMSS-SHA2_10_256",  2);

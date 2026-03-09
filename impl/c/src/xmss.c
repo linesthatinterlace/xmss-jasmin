@@ -227,10 +227,8 @@ int xmss_keygen(const xmss_params *p, uint8_t *pk, uint8_t *sk,
     xmss_adrs_t adrs;
     int ret;
 
-    /* Validate bds_k: K=0 always valid; non-zero K requires K >= 2,
-     * K < H, and (H - K) even (BDS algorithm precondition). */
-    if (bds_k != 0 && (bds_k >= p->tree_height || bds_k < 2 ||
-                        (p->tree_height - bds_k) % 2)) {
+    /* Validate bds_k (includes XMSS_MAX_BDS_K upper bound check) */
+    if (!xmss_bds_k_valid(p, bds_k)) {
         return XMSS_ERR_PARAMS;
     }
 
@@ -240,6 +238,7 @@ int xmss_keygen(const xmss_params *p, uint8_t *pk, uint8_t *sk,
 
     /* Zero the BDS state */
     memset(state, 0, sizeof(*state));
+    state->bds_k = bds_k;
 
     /* Compute tree root with BDS state capture */
     memset(&adrs, 0, sizeof(adrs));
@@ -285,6 +284,10 @@ int xmss_sign(const xmss_params *p, uint8_t *sig,
     const uint8_t *sk_prf   = sk + sk_off_prf(p);
     const uint8_t *root     = sk + sk_off_root(p);
     const uint8_t *pub_seed = sk + sk_off_pub_seed(p);
+
+    /* Validate bds_k and check for keygen/sign mismatch */
+    if (!xmss_bds_k_valid(p, bds_k)) { return XMSS_ERR_PARAMS; }
+    if (bds_k != state->bds_k) { return XMSS_ERR_PARAMS; }
 
     /* Read current index */
     idx = bytes_to_ull(sk + sk_off_idx(p), p->idx_bytes);

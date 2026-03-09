@@ -33,6 +33,24 @@
 #define XMSS_ERR_EXHAUSTED (-4)  /* key index exhausted */
 
 /**
+ * xmss_xmss_bds_k_valid() - Validate a BDS retain parameter.
+ *
+ * K=0 is always valid (no retain optimisation).  Non-zero K requires:
+ *   K <= XMSS_MAX_BDS_K, K >= 2, K < tree_height, (tree_height - K) even.
+ *
+ * The XMSS_MAX_BDS_K bound ensures the retain array (sized for MAX_BDS_K)
+ * is never overflowed.
+ */
+static inline int xmss_bds_k_valid(const xmss_params *p, uint32_t bds_k)
+{
+    if (bds_k == 0) return 1;
+    return bds_k <= XMSS_MAX_BDS_K &&
+           bds_k >= 2 &&
+           bds_k < p->tree_height &&
+           (p->tree_height - bds_k) % 2 == 0;
+}
+
+/**
  * Entropy callback type.
  *
  * The caller supplies a function that fills buf[0..len-1] with len bytes of
@@ -103,6 +121,8 @@ typedef struct xmss_bds_state {
                    ((1U << XMSS_MAX_BDS_K) - XMSS_MAX_BDS_K - 1) : 1][XMSS_MAX_N];
 
     uint32_t next_leaf;  /* next leaf to compute during state_update */
+
+    uint32_t bds_k;      /* retain parameter used at keygen (for sign-time mismatch detection) */
 } xmss_bds_state;
 
 /**
@@ -116,8 +136,8 @@ typedef struct xmss_bds_state {
  * @sk:          Output secret key (p->sk_bytes bytes).
  * @state:       Output BDS state (caller-allocated).
  * @bds_k:       BDS retain parameter. K=0 always valid (no retain
- *               optimisation). Non-zero K requires: K >= 2, K < tree_height,
- *               and (tree_height - K) even (BDS algorithm precondition).
+ *               optimisation). Non-zero K requires: K <= XMSS_MAX_BDS_K,
+ *               K >= 2, K < tree_height, and (tree_height - K) even.
  * @randombytes: Caller-supplied entropy function.
  *
  * Returns XMSS_OK on success, XMSS_ERR_PARAMS if bds_k is invalid.
@@ -144,8 +164,10 @@ int xmss_keygen(const xmss_params *p, uint8_t *pk, uint8_t *sk,
  * @sk:     Secret key (p->sk_bytes bytes); leaf index incremented in place.
  * @state:  BDS state (updated in place).
  * @bds_k:  Retain parameter (same value used in xmss_keygen).
+ *           Must satisfy xmss_bds_k_valid() and match the value stored in state.
  *
- * Returns XMSS_OK on success, XMSS_ERR_EXHAUSTED if key index exhausted.
+ * Returns XMSS_OK on success, XMSS_ERR_PARAMS if bds_k is invalid or
+ * mismatches the keygen value, XMSS_ERR_EXHAUSTED if key index exhausted.
  *
  * The leaf index in sk is incremented BEFORE returning to the caller.
  * Callers must persist the updated sk immediately to prevent index reuse.
@@ -190,7 +212,7 @@ uint32_t xmss_bds_serialized_size(const xmss_params *p, uint32_t bds_k);
  * @state:  BDS state to serialize.
  * @bds_k:  Retain parameter (same as used in keygen).
  *
- * Returns XMSS_OK on success.
+ * Returns XMSS_OK on success, XMSS_ERR_PARAMS if @bds_k is invalid.
  */
 int xmss_bds_serialize(const xmss_params *p, uint8_t *buf,
                        const xmss_bds_state *state, uint32_t bds_k);
@@ -203,7 +225,7 @@ int xmss_bds_serialize(const xmss_params *p, uint8_t *buf,
  * @buf:    Input buffer (xmss_bds_serialized_size() bytes).
  * @bds_k:  Retain parameter (same as used in keygen).
  *
- * Returns XMSS_OK on success.
+ * Returns XMSS_OK on success, XMSS_ERR_PARAMS if @bds_k is invalid.
  */
 int xmss_bds_deserialize(const xmss_params *p, xmss_bds_state *state,
                          const uint8_t *buf, uint32_t bds_k);
@@ -246,7 +268,8 @@ typedef struct xmss_mt_state {
  * @sk:          Output secret key (p->sk_bytes bytes).
  * @state:       Output hypertree state (caller-allocated).
  * @bds_k:       BDS retain parameter. K=0 always valid. Non-zero K requires:
- *               K >= 2, K < tree_height, and (tree_height - K) even.
+ *               K <= XMSS_MAX_BDS_K, K >= 2, K < tree_height,
+ *               and (tree_height - K) even.
  * @randombytes: Caller-supplied entropy function.
  *
  * Returns XMSS_OK on success.
@@ -265,8 +288,10 @@ int xmss_mt_keygen(const xmss_params *p, uint8_t *pk, uint8_t *sk,
  * @sk:     Secret key (p->sk_bytes bytes); index incremented in place.
  * @state:  Hypertree state (updated in place).
  * @bds_k:  BDS retain parameter (same value used in keygen).
+ *           Must satisfy xmss_bds_k_valid() and match the value stored in state.
  *
- * Returns XMSS_OK on success, XMSS_ERR_EXHAUSTED if index exhausted.
+ * Returns XMSS_OK on success, XMSS_ERR_PARAMS if bds_k is invalid or
+ * mismatches the keygen value, XMSS_ERR_EXHAUSTED if index exhausted.
  */
 int xmss_mt_sign(const xmss_params *p, uint8_t *sig,
                 const uint8_t *msg, size_t msglen,
