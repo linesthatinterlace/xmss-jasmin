@@ -297,6 +297,8 @@ int xmss_mt_sign(const xmss_params *p, uint8_t *sig,
         }
     }
 
+    xmss_memzero(r, sizeof(r));
+    xmss_memzero(m_hash, sizeof(m_hash));
     return XMSS_OK;
 }
 
