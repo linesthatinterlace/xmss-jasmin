@@ -17,3 +17,4 @@ isa/binaries/*
 # Generated ISA analysis artefacts
 isa/scripts/mnemonic_extensions.tsv
 isa/reports/xmss_rv64_isa_profile.md
+isa/reports/xmss_rv64_isa_profile_reference.md

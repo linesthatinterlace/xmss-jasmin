@@ -1,0 +1,450 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage[table]{xcolor}
+\usepackage{enumitem}
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6em}
+
+\title{Comparing the RISC-V ISA Profiles of\\
+  Two XMSS C~Implementations}
+\author{Wrenna Robson\thanks{With Claude (Anthropic), which co-authored
+  the analysis tooling and report text.}}
+\date{April 2026}
+
+\begin{document}
+\maketitle
+
+\section{Context}
+
+Two independent C~implementations of XMSS (RFC~8391) have been
+profiled on RISC-V~64 in companion reports:
+
+\begin{itemize}[nosep]
+  \item \emph{RISC-V ISA Profile of the XMSS C Implementation} --- our
+    from-scratch C~implementation in \texttt{impl/c/}, designed to be
+    structurally portable to Jasmin (no VLAs, no heap allocation, no
+    function pointers).
+  \item \emph{RISC-V ISA Profile of the Upstream XMSS Reference
+    Implementation} --- the authoritative reference at
+    \href{https://github.com/XMSS/xmss-reference}{\texttt{XMSS/xmss-reference}}.
+\end{itemize}
+
+This report compares the two profiles side by side.  Both were produced
+with the same toolchain (\texttt{riscv64-linux-gnu-gcc}~13.3.0,
+\texttt{-march=rv64gc -mabi=lp64d -O3}), the same classifier (a
+mnemonic lookup table generated from the \texttt{riscv-opcodes}
+database), and the same per-object-file and per-extension tabulation.
+Any differences between the two profiles are therefore attributable
+to differences in \emph{source code}, not to toolchain or methodology.
+
+\section{Archives under comparison}
+
+\subsection{What is \emph{in} each archive}
+
+\begin{tabular}{@{}llc@{}}
+\toprule
+Component                    & \texttt{impl/c/libxmss.a} & \texttt{libxmss-ref.a} \\
+\midrule
+SHA-256 / SHA-512 core       & \checkmark (bundled)      & --- (OpenSSL \texttt{libcrypto}) \\
+SHAKE128 / SHAKE256          & \checkmark (bundled)      & \checkmark (bundled \texttt{fips202.c}) \\
+WOTS+                        & \checkmark                & \checkmark \\
+L-tree                       & \checkmark                & \checkmark (inside \texttt{xmss\_commons}) \\
+Treehash / BDS state         & \checkmark                & \checkmark (inside \texttt{xmss\_core\_fast}) \\
+BDS state (de)serialisation  & \checkmark                & --- (in-memory only) \\
+XMSS / XMSS-MT core          & \checkmark                & \checkmark \\
+Top-level API                & \checkmark                & \checkmark \\
+Parameter derivation         & \checkmark                & \checkmark \\
+\bottomrule
+\end{tabular}
+
+\subsection{Structural asymmetry: SHA-2}
+\label{sec:sha2-asym}
+
+The decisive asymmetry is SHA-2.  The reference's \texttt{hash.c}
+calls \texttt{SHA256}/\texttt{SHA512} from OpenSSL; its SHA-2
+compression code lives in \texttt{libcrypto} and is \emph{not} present
+in the archive.  Our implementation ships its own SHA-2 in pure C
+(\texttt{sha2\_local.c}).
+
+As a result, direct counts are not apples-to-apples.  A like-for-like
+comparison is only possible by netting out our SHA-2 layer (or by
+measuring only the algorithm layer).  Both views are shown below.
+
+\subsection{Module mapping}
+
+The two code bases carve the XMSS algorithm differently.
+Table~\ref{tab:mapping} establishes the correspondence used in the
+per-module comparisons.
+
+\begin{table}[ht]
+\centering
+\caption{Module mapping between the two implementations.}
+\label{tab:mapping}
+\begin{tabularx}{\linewidth}{@{}XXX@{}}
+\toprule
+Role & \texttt{impl/c/} & Reference \\
+\midrule
+SHA-2 core          & \texttt{sha2\_local.c.o}       & (in libcrypto) \\
+Keccak / SHAKE      & \texttt{shake\_local.c.o}      & \texttt{fips202.o} \\
+Hash wrappers       & \texttt{xmss\_hash.c.o}        & \texttt{hash.o} \\
+ADRS manipulation   & \texttt{address.c.o}           & \texttt{hash\_address.o} \\
+WOTS+               & \texttt{wots.c.o}              & \texttt{wots.o} \\
+L-tree              & \texttt{ltree.c.o}             & \multirow{3}{\linewidth}{\texttt{xmss\_commons.o}} \\
+Treehash            & \texttt{treehash.c.o}          & \\
+BDS state (runtime) & \texttt{bds.c.o}               & \\
+BDS serialisation   & \texttt{bds\_serialize.c.o}    & (not present) \\
+XMSS / XMSS-MT core & \texttt{xmss.c.o}, \texttt{xmss\_mt.c.o} & \texttt{xmss\_core\_fast.o} \\
+Top-level API       & (inside \texttt{xmss.c.o})     & \texttt{xmss.o} \\
+Parameters          & \texttt{params.c.o}            & \texttt{params.o} \\
+Utilities           & \texttt{utils.c.o}             & \texttt{utils.o} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Headline numbers}
+
+Table~\ref{tab:headline} gives the top-level counts.
+
+\begin{table}[ht]
+\centering
+\caption{Headline comparison with \texttt{-march=rv64gc}.}
+\label{tab:headline}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Metric                        & \texttt{impl/c/}      & Reference     & Reference $-$ impl/c \\
+\midrule
+Object files                  & 13                    & 9             & $-$4 \\
+Total instructions            & 9562                  & 7620          & $-$1942 \\
+\quad I                       & 9505 \ (99.40\%)      & 7541 \ (98.96\%) & $-$1964 \\
+\quad M                       &   57 \ (0.60\%)       &   79 \ (1.04\%)  & $+$22 \\
+\quad Zbb (absent in rv64gc)  &    0                  &    0          & --- \\
+C-encoded ratio               &   48\%                &   53\%         & $+$5 pp \\
+Unique mnemonics              &   52                  &   54           & $+$2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On absolute count, the reference archive is 1942 instructions smaller.
+Almost all of that gap, 1953 instructions, is our
+\texttt{sha2\_local.c.o}: once SHA-2 is netted out, the two archives
+are within 11 instructions of each other (7609 vs 7620).  In other
+words, the archives are the same size up to the SHA-2 layer that the
+reference excludes by construction.
+
+The extension surface is also nearly identical: both use only I~+~M,
+with A, F, D, Zba, Zbb, Zbs, Zicsr, and Zifencei absent from both.
+
+\section{Where the M instructions are}
+
+Both implementations fall well below 2\% M usage, but the composition
+differs.
+
+\begin{table}[ht]
+\centering
+\caption{M-extension mnemonic breakdown.}
+\label{tab:m-cmp}
+\begin{tabular}{@{}lrrll@{}}
+\toprule
+Mnemonic        & \texttt{impl/c/} & Reference & Compiler emits it for                              \\
+\midrule
+\texttt{mulw}   & 37               & 68        & 32-bit index $\times$ parameter \\
+\texttt{mul}    & 17               & 6         & 64-bit offset / pointer arithmetic \\
+\texttt{divuw}  &  3               & 1         & parameter derivation ($h/d$) \\
+\texttt{divu}   &  0               & 2         & SHAKE absorb/squeeze offset (reference only) \\
+\texttt{remu}   &  0               & 2         & SHAKE block-length modulus (reference only) \\
+\midrule
+Total           & 57               & 79        & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The reference's 22 extra M-instructions come from two differences:
+
+\begin{itemize}[nosep]
+  \item \textbf{SHAKE implementation style.}  The reference's
+    \texttt{fips202.c} uses ordinary \texttt{/}~and~\texttt{\%}
+    arithmetic on byte counts in the absorb/squeeze loops
+    (\texttt{inlen \% rate}, \texttt{nblocks = outlen/rate}).  Our
+    SHAKE implementation works in fixed block counts with
+    power-of-two-friendly arithmetic, so the compiler never emits
+    \texttt{divu}/\texttt{remu}.
+  \item \textbf{Index-multiplication density.}  The reference uses
+    \texttt{mulw} 68~times; we use it 37~times.  The gap mostly
+    lives in \texttt{xmss\_core\_fast.o} (59~M uses in the reference)
+    versus the combined \texttt{xmss\_mt.o}\,+\,\texttt{xmss.o}\,+\,\texttt{bds.o}
+    (21~M uses in our code).  The reference computes signature-segment
+    offsets (\texttt{i * params->n}, \texttt{i * 2*n}) inline in many
+    places; our code factors common offsets into locals and carries
+    them through the loops, so the compiler re-uses a single
+    register-materialised offset instead of re-multiplying.
+\end{itemize}
+
+Neither pattern indicates any structural dependence on M: an
+RV64I-only target would compile the same C, with shift-and-add
+expansions in place of \texttt{mulw} and \texttt{divu}.
+
+\section{Per-module comparison}
+
+Table~\ref{tab:per-module-cmp} aligns the per-module counts using
+the mapping in Table~\ref{tab:mapping}.
+
+\begin{table}[ht]
+\centering
+\caption{Per-module instruction counts.  The reference's
+  \texttt{xmss\_commons.o} is compared against the combined total of
+  our \texttt{ltree}, \texttt{treehash}, and \texttt{bds.o} (where
+  that combination makes sense).}
+\label{tab:per-module-cmp}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Role & \texttt{impl/c/} & Reference & Delta \\
+\midrule
+SHA-2 core                   & 1953 & ---  & (delegated) \\
+SHAKE / Keccak               & 1337 & 1259 & $-$78 \\
+Hash wrappers                & 1082 &  684 & $-$398 \\
+ADRS manipulation            &   99 &   29 & $-$70 \\
+WOTS+                        &  760 &  498 & $-$262 \\
+L-tree + treehash + BDS runtime & 1743 & $\subset$\,3169 & --- \\
+BDS serialisation            &  473 &  --- & (not present) \\
+XMSS / XMSS-MT core + commons & 1782 & 3682 & $+$1900 \\
+Top-level API                & (in core) & 362 & --- \\
+Parameters                   &  286 & 1077 & $+$791 \\
+Utilities                    &   47 &   29 & $-$18 \\
+\midrule
+Total (archive-local)        & 9562 & 7620 & $-$1942 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Several module-level asymmetries stand out.
+
+\subsection{Parameters: 286 vs 1077}
+
+Our \texttt{params.o} is roughly a quarter the size of the reference's.
+Both modules do the same job---map a wire-format OID to the numeric
+parameters $(n, w, h, d, \ldots)$---but the reference uses a large
+\texttt{switch}/\texttt{if} cascade over all twelve standardised OIDs,
+emitting many compare-and-branch sequences, whereas our
+\texttt{params.c} uses a compact lookup table indexed by OID.  The
+difference is entirely structural and is well understood as a C-level
+coding choice: a jump table is cheaper on RV64 than a linear search.
+
+\subsection{Hash wrappers and ADRS: the cost of explicit serialisation}
+
+Our \texttt{xmss\_hash.o} (1082) and \texttt{address.o} (99) together
+total 1181 instructions against the reference's \texttt{hash.o}
+(684)~+~\texttt{hash\_address.o} (29)~=~713.
+
+Our hash wrappers are deliberately more elaborate.  The reference
+passes ADRS as \texttt{uint32\_t addr[8]} and serialises it to bytes
+inside each hash wrapper via a shared \texttt{addr\_to\_bytes} helper.
+We pre-serialise ADRS into a stack buffer and pass a pointer, which
+(a) makes the hash wrappers match the shape of the Jasmin port we
+intend to write, and (b) gives the compiler a stable input layout so
+the PRF/F/H cores can be emitted with fixed operand sizes.  The cost
+is visible: ~400 more instructions in the hash wrappers.  This is a
+deliberate trade that pays off in the Jasmin port rather than in this
+archive's instruction count.
+
+\subsection{WOTS+: 760 vs 498}
+
+Our \texttt{wots.o} is 262 instructions larger.  A portion of this
+comes from the address-by-pointer calling convention (every F call
+takes a pre-serialised ADRS; the reference passes \texttt{uint32\_t[8]}
+and serialises inside F).  The rest is that our WOTS+ chain routine
+explicitly checks chain-length invariants (\texttt{start + steps <= W-1})
+and has a dedicated fast path for \texttt{steps == 0} that the
+reference lacks.  These defensive checks are motivated by the Jasmin
+port, where out-of-range chain indices would manifest as subtle
+verification-side bugs.
+
+\subsection{XMSS core and BDS: the shape differs, the size matches}
+
+The reference bundles WOTS+ pk generation, L-tree, treehash, BDS
+state, auth-path computation, XMSS keygen/sign/verify, and XMSS-MT
+all into \texttt{xmss\_core\_fast.o} (3169~insns).  We split these
+into separate compilation units: \texttt{bds.o} (1130),
+\texttt{treehash.o} (484), \texttt{ltree.o} (129), \texttt{xmss.o}
+(637), \texttt{xmss\_mt.o} (1145), and \texttt{xmss\_commons} logic
+inlined into callers.  The combined total, 3525, is within 11\% of
+the reference's single file, and the difference is dominated by our
+additional \texttt{bds\_serialize.o} (473 insns) for wire-format
+serialisation of BDS state---a feature the reference's
+\texttt{xmss\_core\_fast.c} lacks entirely.
+
+\section{Zbb: what changes when bit-manip is enabled}
+
+Both implementations were re-profiled with \texttt{-march=rv64gc\_zbb}.
+The extent of Zbb uptake differs sharply, and the mix reveals the
+structural SHA-2 asymmetry from \S\ref{sec:sha2-asym}.
+
+\begin{table}[ht]
+\centering
+\caption{Zbb uptake with \texttt{-march=rv64gc\_zbb}.}
+\label{tab:zbb-cmp}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Metric                         & \texttt{impl/c/} & Reference & Delta \\
+\midrule
+I   (rv64gc)                   & 9505 & 7541 & \\
+I   (rv64gc\_zbb)              & 9281 & 6982 & \\
+\quad I removed                & $-$224 & $-$559 & \\
+Zbb (rv64gc\_zbb)              &  164 &  132 & \\
+Total (rv64gc\_zbb)            & 9502 & 7193 & \\
+\quad Net instruction saving   & $-$60 & $-$427 & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The reference achieves a 7$\times$ larger net code-size reduction from
+Zbb than we do (427 vs 60 instructions), despite emitting 32 fewer Zbb
+instructions than we do.  That inversion is explained by the mix:
+
+\begin{table}[ht]
+\centering
+\caption{Zbb mnemonic mix with \texttt{-march=rv64gc\_zbb}.}
+\label{tab:zbb-mix}
+\begin{tabular}{@{}lrrll@{}}
+\toprule
+Mnemonic        & \texttt{impl/c/} & Reference & Native RV64 cost it replaces & Where \\
+\midrule
+\texttt{rolw}   & 41 & 0  & 3~insns (\texttt{srliw}+\texttt{slliw}+\texttt{or})  & 32-bit SHA-2 rotation \\
+\texttt{roriw}  & 17 & 0  & 3~insns (same)                                      & 32-bit SHA-2 rotation \\
+\texttt{rev8}   & 19 & 0  & multi-insn byte-swap                                & SHA-2 endianness \\
+\texttt{rol}    & 17 & 38 & 3~insns (\texttt{srl}+\texttt{sll}+\texttt{or})     & 64-bit Keccak rho \\
+\texttt{rori}   & 27 & 20 & 3~insns (same)                                      & 64-bit Keccak rho \\
+\texttt{andn}   & 28 & 51 & 2~insns (\texttt{not}+\texttt{and})                 & Keccak chi, XMSS-MT masks \\
+\texttt{maxu}   & 12 & 20 & $\sim$3~insns (branch-based)                        & BDS height comparisons \\
+\texttt{minu}   &  3 &  2 & $\sim$3~insns (branch-based)                        & BDS/SHAKE min \\
+\texttt{zext.h} &  0 &  1 & 2~insns (\texttt{slli}+\texttt{srli})               & 16-bit widening \\
+\midrule
+Total           & 164 & 132 & \multicolumn{2}{c}{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two observations frame the comparison:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Our archive has 32-bit SHA-2 rotations to optimise
+    (\texttt{rolw}, \texttt{roriw}, \texttt{rev8});} the reference
+    does not, because the reference's SHA-2 lives in OpenSSL's
+    \texttt{libcrypto} and is not part of the analysed archive.  The
+    77 Zbb instructions emitted in our \texttt{sha2\_local.c.o}
+    (41~\texttt{rolw}~+~17~\texttt{roriw}~+~19~\texttt{rev8}) have no
+    reference counterpart in this analysis: whatever Zbb
+    \texttt{libcrypto} does or does not use is invisible here.
+  \item \textbf{The larger net saving on the reference side is an
+    archive-size effect, not a Keccak-shape effect.}  An earlier draft
+    of this section attributed the reference's larger net saving to
+    its Keccak rho step folding into \texttt{rol}/\texttt{rori} more
+    idiomatically than ours.  Direct measurement (hand-unrolling our
+    \texttt{keccak\_f1600} into the same straight-line form as the
+    reference's \texttt{fips202.c}, then reprofiling) disproved that:
+    the permutation itself is comparably sized in both, and the
+    unrolled form actually inflated our archive overall.  The real
+    source of the per-instruction asymmetry is elsewhere in the SHAKE
+    module: we ship an incremental \texttt{\_ctx\_\{init,absorb,finalize,squeeze\}}
+    API (driven by Jasmin-portability rules that forbid VLAs and
+    discourage caller-allocated whole-message buffers), which the
+    reference does not.  The extra API surface raises our baseline;
+    the reference's smaller baseline makes any given Zbb saving look
+    bigger in relative terms.  See \texttt{reports/jasmin-scope-hash-vs-upper.md}
+    for the full design-tax accounting.
+\end{enumerate}
+
+The key qualitative finding is shared: \textbf{both} implementations
+concentrate their Zbb uptake in the hash layer.  In our archive
+142/164~=~87\% of Zbb lands in \texttt{sha2\_local}~+~\texttt{shake\_local};
+in the reference, 108/132~=~82\% lands in \texttt{fips202.o}.  The
+algorithm layer, in both cases, sees only opportunistic
+\texttt{maxu}/\texttt{minu}/\texttt{andn} uses that do not affect
+correctness or performance materially.
+
+\section{Takeaways}
+
+\begin{description}[style=nextline,leftmargin=1.5cm]
+  \item[Same ISA surface.]
+    Both implementations, compiled with \texttt{rv64gc}, use only
+    I~+~M.  XMSS at the algorithm level is I-dominated and does not
+    structurally require anything more.  M usage is below 2\% in both
+    cases and comes entirely from compiler-emitted index/offset
+    arithmetic.
+
+  \item[Netting out SHA-2 equalises the archives.]
+    The 1942-instruction gap between the two archives is almost
+    exactly our bundled SHA-2 (\texttt{sha2\_local.c.o},
+    1953~insns).  Everything else---hash wrappers, ADRS handling,
+    WOTS+, BDS, XMSS---differs by at most a few hundred instructions
+    per module.
+
+  \item[Structural differences are design choices, not algorithm
+    cost.]
+    Our \texttt{params.o} is 791~insns smaller because we use a
+    table; our hash and WOTS modules are several hundred insns
+    larger because we pre-serialise ADRS and include defensive
+    range checks.  These differences reflect the Jasmin-port
+    preparation of our implementation, not anything about the XMSS
+    algorithm itself.
+
+  \item[Zbb matters most where SHA-2 lives.]
+    Our archive benefits from Zbb via 32-bit SHA-2 rotations and
+    \texttt{rev8}; the reference benefits via 64-bit Keccak
+    rotations.  In both cases $\geq 82\%$ of Zbb uptake is in the
+    hash layer.  The algorithm layer's Zbb benefit is negligible.
+    For a self-contained XMSS implementation (ours), Zbb trims
+    about 60 instructions; for the reference-as-archived (SHA-2
+    opaque), it trims about 427 largely by improving Keccak.  A
+    reference build that included SHA-2 in source form would show
+    a far larger absolute Zbb benefit, dominated by the SHA-2
+    compression core.
+
+  \item[ISA guidance for a Jasmin RISC-V port is unchanged.]
+    Both analyses point to \texttt{rv64im} as the minimum functional
+    target and \texttt{rv64gc\_zbb} as the optimisation target for
+    the hash layer.  Algorithm-layer Jasmin code can be written in
+    portable RV64I~+~M without loss, and the hash layer is where
+    ISA-specific work pays back.
+\end{description}
+
+\section{Reproducing this report}
+
+This report is a synthesis of two independently generated reports.
+To regenerate the raw data:
+
+\begin{verbatim}
+  # Our C implementation
+  (cd impl/c && make rv)
+  isa/scripts/analyse.sh       # → xmss_rv64_isa_profile.md
+  isa/scripts/compare_zbb.sh   # → rv64gc vs rv64gc_zbb comparison
+
+  # Upstream reference implementation
+  isa/scripts/build_reference_lib.sh rv64gc
+  isa/scripts/build_reference_lib.sh rv64gc_zbb
+  isa/scripts/analyse.sh isa/binaries/libxmss-ref-rv64gc.a \
+                         isa/reports/xmss_rv64_isa_profile_reference.md
+  isa/scripts/analyse.sh isa/binaries/libxmss-ref-rv64gc_zbb.a \
+                         /tmp/xmss_rv64_isa_profile_reference_zbb.md
+\end{verbatim}
+
+The tables in this report transcribe numbers from those generated
+\texttt{.md} files and from the companion reports
+\texttt{xmss\_rv64\_isa\_profile.tex} and
+\texttt{xmss\_rv64\_isa\_profile\_reference.tex}.
+
+\end{document}

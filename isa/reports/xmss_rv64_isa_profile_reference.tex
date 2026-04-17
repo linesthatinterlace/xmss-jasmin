@@ -1,0 +1,441 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{hyperref}
+\usepackage[table]{xcolor}
+\usepackage{enumitem}
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6em}
+
+\title{RISC-V ISA Profile of the Upstream XMSS Reference Implementation}
+\author{Wrenna Robson\thanks{With Claude (Anthropic), which co-authored
+  the analysis tooling and report text.}}
+\date{April 2026}
+
+\begin{document}
+\maketitle
+
+\section{Context}
+
+XMSS (RFC~8391) is a stateful hash-based signature scheme standardised
+for post-quantum use.  An authoritative C~implementation is published
+by the RFC authors at
+\href{https://github.com/XMSS/xmss-reference}{\texttt{XMSS/xmss-reference}}
+and is widely used as a reference companion to the specification.
+
+This report characterises that reference implementation on RISC-V~64:
+which ISA extensions its compiled code actually uses, where in the code
+base each extension appears, and how the profile changes when the Zbb
+bit-manipulation extension is enabled.
+
+The analysis is purely empirical.  The reference sources are
+cross-compiled to RV64 object files, disassembled, and every
+instruction is classified by looking up its mnemonic in a table
+generated from the \texttt{riscv-opcodes} database (the same
+database used by the RISC-V toolchain).
+
+The guiding question is: \emph{what ISA surface does a straightforward
+C~implementation of XMSS actually exercise on RISC-V?}  The answer
+informs decisions about minimum ISA targets, hardware acceleration
+opportunities, and where ISA-specific work (e.g.\ hand-written
+rotation instructions) would pay off.
+
+\section{Methodology}
+
+\subsection{Analysis target}
+
+We analyse the static archive \texttt{libxmss-ref.a}, built from the
+reference's \texttt{SOURCES\_FAST} source set, which is the efficient
+stateful-signing variant using the BDS tree-traversal algorithm:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Source file & Role \\
+\midrule
+\texttt{params.c}           & Parameter-set derivation (wire-format OIDs) \\
+\texttt{hash.c}             & Hash wrappers (PRF, F, H, H\_msg, core\_hash) \\
+\texttt{fips202.c}          & Keccak / SHAKE128 / SHAKE256 \\
+\texttt{hash\_address.c}    & ADRS structure manipulation \\
+\texttt{wots.c}             & WOTS+ key generation, sign, verify \\
+\texttt{xmss.c}             & Top-level XMSS / XMSS-MT API (OID dispatch) \\
+\texttt{xmss\_core\_fast.c} & XMSS / XMSS-MT core with BDS state \\
+\texttt{xmss\_commons.c}    & L-tree, auth-path computation, shared utilities \\
+\texttt{utils.c}            & Integer-to-bytes conversion \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\texttt{randombytes.c} is excluded: it is an OS-boundary CSPRNG
+(\texttt{/dev/urandom} on Linux) and is not part of the XMSS algorithm.
+
+\subsection{OpenSSL delegation for SHA-2}
+\label{sec:openssl}
+
+A crucial feature of the reference implementation is that
+\texttt{hash.c} calls \texttt{SHA256} and \texttt{SHA512} from OpenSSL's
+\texttt{libcrypto}:
+
+\begin{verbatim}
+  #include <openssl/sha.h>
+  ...
+  SHA256(in, inlen, out);
+\end{verbatim}
+
+The reference's final binary is linked with \texttt{-lcrypto}, and the
+actual SHA-2 compression code lives in libcrypto, \emph{not} in the
+XMSS sources.  Consequently, \texttt{libxmss-ref.a} contains
+\textbf{no SHA-2 compression code at all}: \texttt{hash.o} is a thin
+dispatch shim that calls out to external \texttt{SHA256}/\texttt{SHA512}
+symbols.
+
+SHAKE128 and SHAKE256, by contrast, are bundled: the repository ships
+its own \texttt{fips202.c} implementation of Keccak.  So the archive
+does contain a full Keccak-$f[1600]$ permutation.
+
+This asymmetry is central to interpreting the profile in
+\S\ref{sec:findings}.  What we are measuring is ``XMSS minus libcrypto'':
+the algorithm layer plus SHAKE, but without SHA-2 internals.
+
+\subsection{Toolchain}
+
+\begin{tabular}{@{}lp{9cm}@{}}
+  Compiler   & \texttt{riscv64-linux-gnu-gcc} 13.3.0 (Ubuntu) \\
+  Flags      & \texttt{-march=rv64gc -mabi=lp64d -O3 -Wall -Wextra -Wpedantic} \\
+  Disassembler & \texttt{riscv64-linux-gnu-objdump} (Binutils 2.42) \\
+  Lookup source & \texttt{third\_party/riscv-opcodes} submodule \\
+\end{tabular}
+
+The \texttt{rv64gc} march is the standard general-purpose profile:
+RV64I + M + A + F + D + Zicsr + Zifencei + C.  It does \emph{not}
+include Zba, Zbb, or other bit-manipulation extensions.
+
+\subsection{Classification}
+
+Each disassembled instruction is classified on two orthogonal axes:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Semantic extension} (what the instruction does): I, M,
+    A, F, D, Zba, Zbb, etc.  Determined by looking up the mnemonic in
+    the \texttt{riscv-opcodes} database.
+  \item \textbf{Encoding width} (how it is encoded): 16-bit compressed
+    (C extension) or 32-bit standard.  Determined from the raw
+    instruction byte count in the \texttt{objdump} output.
+\end{enumerate}
+
+GNU objdump renders compressed instructions using their uncompressed
+aliases (\texttt{sd} not \texttt{c.sd}).  A classifier that looks for
+\texttt{c.}~prefixes would report C~=~0\%.  We detect C encoding from
+byte width instead.
+
+\section{Findings}
+\label{sec:findings}
+
+\subsection{Extension summary}
+
+Table~\ref{tab:ext-summary} shows the headline result: with
+\texttt{-march=rv64gc}, the reference implementation uses only the
+\textbf{I} and \textbf{M} extensions.
+
+\begin{table}[ht]
+\centering
+\caption{Semantic extension summary across all 9 object files.}
+\label{tab:ext-summary}
+\begin{tabular}{@{}lrrp{7cm}@{}}
+\toprule
+Extension & Instructions & Unique mnemonics & Notes \\
+\midrule
+\textbf{I} & 7541 & 49 & Base integer: loads, stores, branches, arithmetic, shifts \\
+\textbf{M} &   79 &  5 & \texttt{mulw}, \texttt{mul}, \texttt{divuw}, \texttt{divu}, \texttt{remu} \\
+\midrule
+A, F, D        & 0 & 0 & Not present despite being enabled by \texttt{rv64gc} \\
+Zba, Zbb, Zbs  & 0 & 0 & Not part of \texttt{rv64gc}; see \S\ref{sec:zbb} \\
+Zicsr, Zifencei & 0 & 0 & Reserved for kernel/fence code, absent from XMSS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+98.96\% of instructions are base integer (I).  The remaining 1.04\%
+are M-extension multiply/divide, which---as the per-module breakdown
+below will show---come entirely from compiler-generated arithmetic
+for index and parameter calculations.
+
+\subsection{Per-module breakdown}
+
+Table~\ref{tab:per-module} gives instruction counts per object file,
+grouped by role.
+
+\begin{table}[ht]
+\centering
+\caption{Per-object-file instruction counts.  ``M'' is the M-extension
+  count; all remaining instructions are I.}
+\label{tab:per-module}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Object file & Total & M insns & C-encoded (\%) \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Hash layer}} \\
+\quad \texttt{fips202.o}        & 1259 & 6  & 49\% \\
+\quad \texttt{hash.o}           &  684 & 0  & 64\% \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Algorithm layer}} \\
+\quad \texttt{xmss\_core\_fast.o} & 3169 & 59 & 47\% \\
+\quad \texttt{params.o}           & 1077 &  5 & 56\% \\
+\quad \texttt{xmss\_commons.o}    &  513 &  4 & 54\% \\
+\quad \texttt{wots.o}             &  498 &  5 & 62\% \\
+\quad \texttt{xmss.o}             &  362 &  0 & 59\% \\
+\quad \texttt{hash\_address.o}    &   29 &  0 & 96\% \\
+\quad \texttt{utils.o}            &   29 &  0 & 58\% \\
+\midrule
+\textbf{Total} & \textbf{7620} & \textbf{79} & \textbf{53\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Several features are worth noting:
+
+\begin{itemize}[nosep]
+  \item \texttt{hash.o} is conspicuously small for a ``hash'' module
+    (684 instructions, 0 M).  This is because it merely dispatches to
+    SHA-256/SHA-512 in libcrypto (see \S\ref{sec:openssl}) and to
+    SHAKE in \texttt{fips202.o}; the actual SHA-2 compression code is
+    not in the archive.
+  \item \texttt{fips202.o} is large (1259 instructions, 49\%
+    C-encoded)\@.  This is where the Keccak-$f[1600]$ permutation
+    lives; the bulk of the code is 64-bit rotations and XORs applied
+    to the 5$\times$5 state lanes across 24 rounds.
+  \item \texttt{xmss\_core\_fast.o} dominates the algorithm layer at
+    3169 instructions.  It contains XMSS keygen/sign/verify, XMSS-MT,
+    and the BDS tree-traversal state machine (treehash update,
+    retain-stack handling, auth-path construction).
+  \item \texttt{xmss.o} (the top-level API) is only 362 instructions:
+    it is essentially OID dispatch and forwarding into
+    \texttt{xmss\_core\_fast}.  It uses no M instructions.
+\end{itemize}
+
+\subsection{Where M instructions come from}
+
+All 79 M-extension instructions are compiler-emitted from ordinary
+C~expressions---none are hand-written multiplies.  Table~\ref{tab:m-detail}
+shows the distribution.
+
+\begin{table}[ht]
+\centering
+\caption{M-extension instructions by mnemonic and host object file.}
+\label{tab:m-detail}
+\begin{tabular}{@{}rlll@{}}
+\toprule
+Count & Mnemonic & Object files & Typical origin \\
+\midrule
+ 68 & \texttt{mulw}  & xmss\_core\_fast, params, wots, xmss\_commons & 32-bit index $\times$ parameter \\
+  6 & \texttt{mul}   & xmss\_core\_fast, fips202 & 64-bit offset / pointer arithmetic \\
+  2 & \texttt{divu}  & fips202 & SHAKE absorb/squeeze offset \\
+  2 & \texttt{remu}  & fips202 & SHAKE block-length modulus \\
+  1 & \texttt{divuw} & params & parameter derivation ($h/d$) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The \texttt{fips202.o} M uses (\texttt{divu}/\texttt{remu}/\texttt{mul})
+come from SHAKE's variable-length absorb/squeeze loops, which do
+\texttt{inlen \% rate} and related byte-count arithmetic.  The
+algorithm-layer M uses are all of the form \texttt{index * params->n}
+for byte offsets into signature and auth-path buffers.
+
+\subsection{Compressed encoding}
+
+53\% of instructions use the 16-bit C~encoding.  The ratio varies from
+47\% (\texttt{xmss\_core\_fast.o}, which has more
+shift/mask/compare-immediate instructions that do not have compressed
+forms) to 96\% (\texttt{hash\_address.o}, which is entirely small
+load/store/shift sequences for ADRS word manipulation).
+
+C~encoding is handled automatically by the assembler.  It affects code
+size but not the set of required semantic extensions.
+
+\section{Enabling Zbb}
+\label{sec:zbb}
+
+The Zbb bit-manipulation extension provides single-instruction
+rotations (\texttt{ror}, \texttt{rori}, \texttt{rol}), byte-reversal
+(\texttt{rev8}), unsigned min/max (\texttt{minu}, \texttt{maxu}), and
+bitwise-complement AND (\texttt{andn}).  These operations are relevant
+to hash functions (rotations) and to several common C~idioms that the
+compiler can recognise (\texttt{a \& \textasciitilde b}; ternary
+min/max).  Zbb is \emph{not} part of \texttt{rv64gc}; it must be
+requested explicitly via \texttt{-march=rv64gc\_zbb}.
+
+\subsection{Empirical comparison}
+
+Re-building the archive with \texttt{-march=rv64gc\_zbb} yields the
+comparison in Table~\ref{tab:zbb-summary}.
+
+\begin{table}[ht]
+\centering
+\caption{Extension counts: \texttt{rv64gc} vs \texttt{rv64gc\_zbb}.}
+\label{tab:zbb-summary}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Extension & \texttt{rv64gc} & \texttt{rv64gc\_zbb} & Delta \\
+\midrule
+\textbf{I}   & 7541 & 6982 & $-$559 \\
+\textbf{M}   &   79 &   79 &      0 \\
+\textbf{Zbb} &    0 &  132 &  +132 \\
+\midrule
+Total        & 7620 & 7193 &   $-$427 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Enabling Zbb removes 559 base-integer instructions and introduces 132
+Zbb instructions, for a net decrease of 427 instructions (5.6\% of the
+archive).  The compiler has recognised that multi-instruction
+rotation, \texttt{not}/\texttt{and}, and branch-based min/max
+sequences can be collapsed into single Zbb ops.
+
+Table~\ref{tab:zbb-detail} breaks down the 132 Zbb instructions by
+mnemonic.
+
+\begin{table}[ht]
+\centering
+\caption{Zbb instructions emitted with \texttt{-march=rv64gc\_zbb}.}
+\label{tab:zbb-detail}
+\begin{tabular}{@{}rlll@{}}
+\toprule
+Count & Mnemonic & Object files & Replaces \\
+\midrule
+ 51 & \texttt{andn}   & fips202, xmss\_core\_fast     & \texttt{not}+\texttt{and} \\
+ 38 & \texttt{rol}    & fips202                       & \texttt{srl}+\texttt{sll}+\texttt{or} \\
+ 20 & \texttt{rori}   & fips202                       & \texttt{srli}+\texttt{slli}+\texttt{or} \\
+ 20 & \texttt{maxu}   & hash, xmss\_commons, xmss\_core\_fast & branch-based max \\
+  2 & \texttt{minu}   & xmss\_core\_fast              & branch-based min \\
+  1 & \texttt{zext.h} & xmss\_core\_fast              & \texttt{slli}+\texttt{srli} mask \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Where Zbb lands}
+
+Of the 132 Zbb instructions, \textbf{108 (82\%)} are in
+\texttt{fips202.o} (SHAKE).  The 64-bit rotations (\texttt{rol},
+\texttt{rori}) come directly from the Keccak-$f[1600]$ round
+function---the rho step rotates each lane by a fixed offset, and
+the iota step combines rotations with lane XORs.  The \texttt{andn}
+instructions come from the chi step's nonlinear function
+$a \oplus ((\lnot b) \land c)$.
+
+The remaining \textbf{24 (18\%)} are scattered across the algorithm
+layer and are opportunistic: \texttt{maxu}/\texttt{minu} for height
+and index comparisons in the BDS state machine, \texttt{andn} for
+bitmask combinations in XMSS-MT, and a single \texttt{zext.h} for a
+16-bit unsigned widening.  These do not reflect any structural
+dependence on Zbb; the algorithm runs equally well without it.
+
+\subsection{The missing SHA-2 rotations}
+
+A conspicuous absence is \texttt{rev8} and 32-bit rotations
+(\texttt{rolw}, \texttt{rorw}, \texttt{roriw}).  These are precisely
+the instructions one would expect SHA-256 / SHA-512 to use
+heavily---for their round-constant rotations and for big-endian
+conversion of the message schedule.
+
+They are absent here for one reason: the archive does not contain
+SHA-2.  The reference delegates SHA-256 and SHA-512 to OpenSSL's
+\texttt{libcrypto} (see \S\ref{sec:openssl}).  Any Zbb win
+OpenSSL might obtain from its own SHA-2 assembly is invisible to this
+analysis, because \texttt{libcrypto} is not part of the measured
+archive.
+
+A complete, self-contained XMSS implementation---one that ships its
+own SHA-256/SHA-512 in portable C---would show substantially more
+Zbb benefit, with a large block of 32-bit rotations and byte-reversals
+appearing in the hash layer.  The reference's choice to delegate SHA-2
+pushes that optimisation surface into libcrypto, where it is
+architecturally opaque to clients.
+
+\section{Interpretation}
+
+\subsection{Required ISA surface}
+
+With \texttt{rv64gc}, the reference implementation's compiled footprint
+uses only RV64I~+~M.  All A, F, D, Zba, Zbb, Zbs, Zicsr, and Zifencei
+instructions are absent.  The minimum ISA to execute the code in
+\texttt{libxmss-ref.a} is therefore \textbf{RV64IM}.  The C extension
+is a pure code-size win---53\% of the archive is 16-bit encoded---but
+semantics are unchanged.
+
+The M extension is used in only 79 of 7620 instructions (1.04\%), and
+all 79 uses come from ordinary C~arithmetic on array indices and
+parameter values.  Neither XMSS nor WOTS+ performs large-integer
+multiplication: the scheme is entirely hash-based.  An RV64I-only
+target would force the compiler to synthesise multiplies from shift
+and add sequences, which is feasible but unnecessary on any realistic
+platform.
+
+\subsection{Where hardware acceleration helps}
+
+The natural question is: where would hardware-level ISA support buy
+the most performance?
+
+For this implementation, the profile says: \emph{in the SHAKE
+permutation}.  With Zbb enabled, 82\% of the emitted Zbb instructions
+are in \texttt{fips202.o}.  Keccak is rotation-heavy and benefits
+directly from single-cycle \texttt{rol}/\texttt{rori} and from
+\texttt{andn} in the chi step.
+
+The algorithm layer benefits negligibly: 24 opportunistic Zbb uses
+across roughly 6000 I-extension instructions.  This confirms that
+XMSS/WOTS+/BDS are fundamentally load/store/branch/shift-shaped
+workloads; there is no structural case for bitmanip acceleration at
+the algorithm level.
+
+SHA-2 is invisible to this analysis by construction.  For an XMSS
+build that ships its own SHA-2 (rather than delegating to OpenSSL),
+Zbb's \texttt{rolw}/\texttt{roriw}/\texttt{rev8} would be the dominant
+win; the reference's design choice simply moves that surface into
+libcrypto, where it is linked against at final-binary time.
+
+\subsection{Compiler extension inclusion is conservative}
+
+It is worth emphasising that enabling \texttt{-march=rv64gc\_zbb}
+introduces Zbb \emph{only where the compiler can prove equivalence}.
+The reference's source code contains no RISC-V intrinsics and no
+architecture-specific assembly: the 132 Zbb instructions are the
+compiler's unaided recognition of idiomatic C patterns
+(\texttt{(x >> n) | (x << (w-n))}, \texttt{a \& \textasciitilde b},
+\texttt{a < b ? b : a}).  Deeper gains would require either
+hand-written intrinsics or a higher-level hash library that already
+exploits Zbb.
+
+\section{Reproducing this report}
+
+From the repository root, with
+\texttt{binutils-riscv64-linux-gnu}, \texttt{gcc-riscv64-linux-gnu},
+\texttt{libssl-dev}, and the \texttt{third\_party/riscv-opcodes}
+submodule present:
+
+\begin{verbatim}
+  isa/scripts/build_reference_lib.sh rv64gc
+  isa/scripts/build_reference_lib.sh rv64gc_zbb
+  isa/scripts/analyse.sh isa/binaries/libxmss-ref-rv64gc.a \
+                         isa/reports/xmss_rv64_isa_profile_reference.md
+  isa/scripts/analyse.sh isa/binaries/libxmss-ref-rv64gc_zbb.a \
+                         /tmp/xmss_rv64_isa_profile_reference_zbb.md
+\end{verbatim}
+
+The generated Markdown reports contain the raw per-object and
+per-extension tables from which Tables~\ref{tab:ext-summary}
+through~\ref{tab:zbb-detail} are derived.
+
+\end{document}

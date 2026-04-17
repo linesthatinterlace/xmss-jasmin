@@ -15,10 +15,13 @@
 #     extension is used (e.g. hash.c.o vs wots.c.o vs bds.c.o).
 #
 # Usage:
-#   ./analyse.sh [INPUT]
+#   ./analyse.sh [INPUT] [REPORT]
 #
 #   INPUT defaults to impl/c/build-rv/libxmss.a relative to the repo root.
 #   Can also be a .o file or a directory of .o files.
+#
+#   REPORT defaults to isa/reports/xmss_rv64_isa_profile.md. Use a different
+#   path to avoid clobbering an existing report (e.g. the reference analysis).
 #
 # Prerequisites:
 #   - riscv64-linux-gnu-objdump  (apt install binutils-riscv64-linux-gnu)
@@ -31,11 +34,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 REPORTS_DIR="${SCRIPT_DIR}/../reports"
-REPORT="${REPORTS_DIR}/xmss_rv64_isa_profile.md"
 LOOKUP="${SCRIPT_DIR}/mnemonic_extensions.tsv"
 OBJDUMP="riscv64-linux-gnu-objdump"
 
 INPUT="${1:-${REPO_ROOT}/impl/c/build-rv/libxmss.a}"
+REPORT="${2:-${REPORTS_DIR}/xmss_rv64_isa_profile.md}"
 
 # For display in the report, use a relative path if inside the repo
 INPUT_DISPLAY="${INPUT#${REPO_ROOT}/}"
