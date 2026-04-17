@@ -131,6 +131,8 @@ These are enforced and must not be broken by any change:
 | `test_xmss_kat` | SHAKE128-fingerprint cross-validation against xmss-reference for 4 XMSS parameter sets: SHA-2/SHAKE × n=32/n=64, h=10 (advances BDS to idx=512 for sig fingerprint) |
 | `test_bds` | BDS-specific: bds_k validation (odd/too-large rejected); roundtrip and sequential signing with bds_k=2 and bds_k=4 |
 | `test_bds_serial` | BDS serialization: round-trip after keygen, mid-signing, byte-exact, size consistency, multiple param sets, bds_k=2 |
+| `test_bds_exhaustive_h5` | Exhaustive H=5 (core tier): all 33 sigs via XMSS-MT 20/4 tree_height=5 with K=0, including layer boundary crossing; treehash completion assertion active in debug builds |
+| `test_bds_exhaustive_h10` | Exhaustive H=10 (deep tier): all 1024 sigs × K=0,2,4 via XMSS-SHA2_10_256; per-signature BDS state invariant validation; key exhaustion check |
 | `test_xmss_mt_params` | All 32 XMSS-MT OIDs: n, w, h, d, tree_height, len, sig_bytes, pk_bytes, sk_bytes, idx_bytes; RFC and internal OID lookup |
 | `test_xmss_mt` | XMSS-MT keygen/sign/verify roundtrip; bit-flip and wrong-message rejection; sequential signing (5 sigs); tree boundary crossing (1024+ sigs) |
 | `test_utils_internal` | ct_memcmp, ull_to_bytes, bytes_to_ull, xmss_memzero, xmss_PRF_idx, key exhaustion |

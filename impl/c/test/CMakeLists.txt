@@ -49,24 +49,23 @@ add_xmss_test(test_xmss)
 add_xmss_test(test_bds)
 add_xmss_test(test_bds_serial)
 add_xmss_test(test_xmss_mt)
+# H=5 exhaustive: 32 sigs via XMSS-MT 20/4 tree_height=5, K=0 only (<1s)
+add_xmss_test(test_bds_exhaustive_h5)
 
 set_tests_properties(
-    test_xmss test_bds test_bds_serial test_xmss_mt
+    test_xmss test_bds test_bds_serial test_xmss_mt test_bds_exhaustive_h5
     PROPERTIES LABELS "core"
 )
-
-# test_bds_exhaustive has fast H=5 subtests (<5s) and slow H=10 subtests (~10 min).
-# Label it "core" because the H=5 portion alone catches the important bugs.
-add_xmss_test(test_bds_exhaustive)
-set_tests_properties(test_bds_exhaustive PROPERTIES LABELS "core")
 
 # Tier 3: deep validation (5-15 min total)
 add_xmss_test(test_xmss_kat)
 add_xmss_test(test_xmss_mt_kat     ${CMAKE_SOURCE_DIR}/src/hash)
 add_xmss_test(test_xmss_acvp_kat)
+# H=10 exhaustive: 1024 sigs x K=0,2,4 (~10 min)
+add_xmss_test(test_bds_exhaustive_h10)
 
 set_tests_properties(
-    test_xmss_kat test_xmss_mt_kat test_xmss_acvp_kat
+    test_xmss_kat test_xmss_mt_kat test_xmss_acvp_kat test_bds_exhaustive_h10
     PROPERTIES LABELS "deep"
 )
 
@@ -82,11 +81,11 @@ set_tests_properties(
     PROPERTIES TIMEOUT ${FAST_TIMEOUT}
 )
 set_tests_properties(
-    test_xmss test_bds test_bds_serial test_xmss_mt
+    test_xmss test_bds test_bds_serial test_xmss_mt test_bds_exhaustive_h5
     PROPERTIES TIMEOUT ${CORE_TIMEOUT}
 )
 set_tests_properties(
-    test_bds_exhaustive
+    test_bds_exhaustive_h10
     PROPERTIES TIMEOUT ${EXHAUSTIVE_TIMEOUT}
 )
 set_tests_properties(

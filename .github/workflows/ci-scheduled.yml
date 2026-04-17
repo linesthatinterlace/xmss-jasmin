@@ -32,8 +32,8 @@ jobs:
       - name: Build
         run: cmake --build build
 
-      - name: Exhaustive BDS test (H=5 K=0,2,4 + H=10 K=0,2,4)
-        run: ctest --test-dir build --output-on-failure -R test_bds_exhaustive
+      - name: Exhaustive BDS test (H=5 K=0 + H=10 K=0,2,4)
+        run: ctest --test-dir build --output-on-failure -R test_bds_exhaustive_h
         timeout-minutes: 30
 
   # Jasmin: slow API tests (h=16 ~10min, h=20 ~3h)
