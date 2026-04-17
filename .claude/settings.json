@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/jasmin_check.sh"
+            "command": "$PROJECT_DIR/.claude/hooks/jasmin_check.sh"
           }
         ]
       }

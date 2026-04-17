@@ -7,6 +7,9 @@ on:
     - cron: '0 4 * * 4'  # Thursday 04:00 UTC — RISC-V
   workflow_dispatch:       # Manual trigger (runs all jobs)
 
+permissions:
+  contents: read
+
 jobs:
   # C: full exhaustive BDS matrix (H=5 and H=10, all K values)
   # Catches treehash budget bugs across every (H,K) combination.
@@ -24,7 +27,7 @@ jobs:
       run:
         working-directory: impl/c
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Configure (debug — enables assertions)
         run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DXMSS_WERROR=ON
@@ -46,10 +49,10 @@ jobs:
       run:
         working-directory: impl/jasmin
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up OCaml
-        uses: ocaml/setup-ocaml@v3
+        uses: ocaml/setup-ocaml@e32b06a3e831ff2fbc6f08cf35be2085e3918014 # v3
         with:
           ocaml-compiler: "4.14"
 
@@ -80,7 +83,7 @@ jobs:
       run:
         working-directory: impl/c
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install cross toolchain
         run: |

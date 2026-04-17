@@ -128,6 +128,8 @@ int xmss_sign_naive(const xmss_params *p, uint8_t *sig,
                        sk_seed, pub_seed,
                        (uint32_t)idx, &adrs);
 
+    xmss_memzero(r, sizeof(r));
+    xmss_memzero(m_hash, sizeof(m_hash));
     return XMSS_OK;
 }
 
@@ -345,5 +347,7 @@ int xmss_sign(const xmss_params *p, uint8_t *sig,
                             sk_seed, pub_seed, &adrs);
     }
 
+    xmss_memzero(r, sizeof(r));
+    xmss_memzero(m_hash, sizeof(m_hash));
     return XMSS_OK;
 }

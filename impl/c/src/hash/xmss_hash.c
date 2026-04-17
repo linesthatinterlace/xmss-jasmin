@@ -76,6 +76,8 @@ static void prf_local(const xmss_params *p, uint8_t *out,
     off += 32;
 
     core_hash_local(p, out, buf, off);
+    xmss_memzero(buf, sizeof(buf));
+    xmss_memzero(adrs_bytes, sizeof(adrs_bytes));
 }
 
 /* ====================================================================
@@ -114,6 +116,9 @@ int xmss_F(const xmss_params *p, uint8_t *out,
     for (i = 0; i < p->n; i++) { buf[off++] = in[i] ^ bm[i]; }
 
     core_hash_local(p, out, buf, off);
+    xmss_memzero(prf_key, sizeof(prf_key));
+    xmss_memzero(bm, sizeof(bm));
+    xmss_memzero(buf, sizeof(buf));
     return 0;
 }
 
@@ -160,6 +165,10 @@ int xmss_H(const xmss_params *p, uint8_t *out,
     for (i = 0; i < p->n; i++) { buf[off++] = in_r[i] ^ bm_r[i]; }
 
     core_hash_local(p, out, buf, off);
+    xmss_memzero(prf_key, sizeof(prf_key));
+    xmss_memzero(bm_l, sizeof(bm_l));
+    xmss_memzero(bm_r, sizeof(bm_r));
+    xmss_memzero(buf, sizeof(buf));
     return 0;
 }
 
@@ -276,6 +285,8 @@ int xmss_PRF_keygen(const xmss_params *p, uint8_t *out,
     memcpy(buf + off, adrs_bytes, 32); off += 32;
 
     core_hash_local(p, out, buf, off);
+    xmss_memzero(buf, sizeof(buf));
+    xmss_memzero(adrs_bytes, sizeof(adrs_bytes));
     return 0;
 }
 
@@ -302,5 +313,6 @@ int xmss_PRF_idx(const xmss_params *p, uint8_t *out,
     off += 32;
 
     core_hash_local(p, out, buf, off);
+    xmss_memzero(buf, sizeof(buf));
     return 0;
 }

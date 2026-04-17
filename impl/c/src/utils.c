@@ -48,9 +48,11 @@ uint64_t bytes_to_ull(const uint8_t *in, uint32_t len)
 /**
  * xmss_memzero() - Securely zero len bytes at ptr.
  *
- * Uses the volatile-pointer idiom to prevent the compiler from optimising
- * this away.  Not guaranteed on all compilers, but portable and standard C99.
- * On platforms with memset_s or explicit_bzero, those should be preferred.
+ * Uses the volatile-pointer idiom plus a compiler memory barrier to prevent
+ * the compiler from optimising this away.  The volatile qualifier prevents
+ * dead-store elimination of the writes; the barrier prevents the compiler
+ * from proving the writes are unobservable and removing them at a higher
+ * optimisation level.
  */
 void xmss_memzero(void *ptr, size_t len)
 {
@@ -59,6 +61,7 @@ void xmss_memzero(void *ptr, size_t len)
     for (i = 0; i < len; i++) {
         p[i] = 0;
     }
+    __asm__ __volatile__("" ::: "memory");
 }
 
 /**
@@ -67,6 +70,10 @@ void xmss_memzero(void *ptr, size_t len)
  * Returns 0 if the first len bytes of a and b are identical, non-zero
  * otherwise.  Evaluates all len bytes regardless of early differences
  * (no short-circuit).
+ *
+ * The volatile accumulator prevents dead-store elimination of intermediate
+ * writes to diff.  The compiler memory barrier prevents the compiler from
+ * short-circuiting the loop if it can prove diff is already non-zero.
  *
  * J6: constant-time required for signature verification (prevents timing
  * oracle distinguishing valid from invalid signatures).
@@ -78,5 +85,6 @@ int ct_memcmp(const uint8_t *a, const uint8_t *b, size_t len)
     for (i = 0; i < len; i++) {
         diff |= a[i] ^ b[i];
     }
+    __asm__ __volatile__("" ::: "memory");
     return (int)diff;
 }
