@@ -95,10 +95,23 @@ theorem mergeLoop_eq (P : Params Node) :
 
 After `i` pushes (starting from any aligned base), the running
 stack's heights are the bit positions of `i`, lowest bit at the
-top. We capture this as a recursive predicate `stackBits` on
-`(i, stack)`; combined with the alignment of `s`, it discharges
-`MergeOK (s + i) 0 stack` at every iteration.
--/
+top. We capture this as an inductive predicate `Stack.Encodes`:
+`s.Encodes n` says the heights of `s` are the set-bit positions of
+`n` in strictly increasing order from the top of the stack. -/
+
+/-- The stack encodes `n` in binary: its heights are the set-bit
+positions of `n`, lowest on top, strictly increasing downward.
+
+Built up as a sum of distinct powers of two, one per entry. The
+`cons` constructor enforces ordering pointwise on adjacent entries
+(`Chain'`-style), so transitivity of `<` carries the rest. -/
+inductive Stack.Encodes : Nat → Stack Node → Prop
+  | nil : Stack.Encodes 0 []
+  | singleton (h : Nat) (v : Node) : Stack.Encodes (2 ^ h) [⟨h, v⟩]
+  | cons (h : Nat) (v : Node) {m h' : Nat} {v' : Node} {rest : Stack Node}
+      (hlt   : h < h')
+      (hrest : Stack.Encodes m (⟨h', v'⟩ :: rest)) :
+      Stack.Encodes (m + 2 ^ h) (⟨h, v⟩ :: ⟨h', v'⟩ :: rest)
 
 /-- The heights of the stack are exactly the set-bit positions of `i`:
 `i.testBit n` iff some entry in `stack` has height `n`. -/

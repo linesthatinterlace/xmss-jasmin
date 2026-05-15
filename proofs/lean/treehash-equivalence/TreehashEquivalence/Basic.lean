@@ -131,6 +131,11 @@ structure StackEntry (Node : Type u) where
   value  : Node
   deriving Repr
 
+/-- The treehash working stack: a list of `StackEntry`s, top-of-stack
+at the head. Abbreviation for ergonomic signatures and for
+namespacing invariants (e.g. `Stack.Encodes`). -/
+abbrev Stack (Node : Type u) := List (StackEntry Node)
+
 /-- A treehash result: final stack plus reverse-ordered H-call trace. -/
 structure TreehashResult (Node : Type u) where
   stack : List (StackEntry Node)
