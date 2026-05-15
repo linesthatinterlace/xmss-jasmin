@@ -2,7 +2,7 @@ import TreehashEquivalence.Impl
 import Mathlib.Tactic.Linarith
 import Mathlib.Algebra.Order.Group.Nat
 import Mathlib.Data.Nat.Basic
-import Mathlib.Data.Nat.ModEq
+import Mathlib.Data.Nat.Bits
 
 /-!
 # Local ↔ Global bridge
@@ -29,13 +29,12 @@ variable {Node : Type u}
 
 /-- Address-consistency invariant for the merge cascade.
 
-For every depth `i`, if the stack entry at that depth has height
-exactly `h + i`, then bit `h + i` of `leafIdx` is set. This is the
-single fact needed at every merge step to turn the local update
-`(leafIdx/2^k - 1) / 2` into the global formula `leafIdx / 2^(k+1)`
-— because that identity holds iff `leafIdx / 2^k` is odd. -/
+Every stack entry at height `≥ h` has its corresponding bit set in
+`leafIdx`. This is the single fact needed at each merge step to turn
+the local update `(leafIdx/2^k - 1) / 2` into the global formula
+`leafIdx / 2^(k+1)` — because that identity holds iff `leafIdx.testBit k`. -/
 def MergeOK (leafIdx h : Nat) (stack : List (StackEntry Node)) : Prop :=
-  ∀ i v, stack[i]? = some ⟨h + i, v⟩ → leafIdx / 2 ^ (h + i) % 2 = 1
+  ∀ e ∈ stack, h ≤ e.height → leafIdx.testBit e.height
 
 private lemma div_pow_succ (leafIdx h : Nat) :
     leafIdx / 2 ^ (h + 1) = leafIdx / 2 ^ h / 2 := by
@@ -46,12 +45,14 @@ private lemma sub_one_div_two_of_odd {n : Nat} (h : n % 2 = 1) :
   omega
 
 /-- The merge-step bridge: when the merge is "ready to fire"
-(`leafIdx / 2^h` is odd), the local update `(leafIdx/2^h - 1) / 2`
+(`leafIdx.testBit h` is true), the local update `(leafIdx/2^h - 1) / 2`
 lands exactly on `leafIdx / 2^(h+1)`. -/
 private lemma local_step_eq_global
-    {leafIdx h : Nat} (hodd : leafIdx / 2 ^ h % 2 = 1) :
+    {leafIdx h : Nat} (hodd : leafIdx.testBit h) :
     (leafIdx / 2 ^ h - 1) / 2 = leafIdx / 2 ^ (h + 1) := by
-  rw [sub_one_div_two_of_odd hodd, ← div_pow_succ]
+  have hodd' : leafIdx / 2 ^ h % 2 = 1 := by
+    rwa [Nat.testBit_eq_true_iff] at hodd
+  rw [sub_one_div_two_of_odd hodd', ← div_pow_succ]
 
 /-- **Merge-loop equivalence.** Under the address-consistency
 invariant, the local and global inner merge loops produce the same
@@ -76,24 +77,17 @@ theorem mergeLoop_eq (P : Params Node) :
     by_cases heq : h' = h
     · -- Merge fires; addresses must agree.
       subst heq
-      -- Oddness at this merge: instantiate MergeOK at depth 0.
-      have hodd : leafIdx / 2 ^ h' % 2 = 1 := by
-        have := hOK 0 v' (by simp)
-        simpa using this
+      -- Oddness at this merge: apply MergeOK to the head.
+      have hodd : leafIdx.testBit h' :=
+        hOK ⟨h', v'⟩ (List.mem_cons_self _ _) (le_refl _)
       have ht' : (leafIdx / 2 ^ h' - 1) / 2 = leafIdx / 2 ^ (h' + 1) :=
         local_step_eq_global hodd
       -- Unfold both loops on the merge branch.
       simp only [localMergeLoop, globalMergeLoop, if_true, ht']
-      -- Apply IH at height h'+1; the tail invariant follows by index shift.
+      -- Apply IH at height h'+1; tail invariant follows from MergeOK on tl.
       apply ih _ (h' + 1) _ leafIdx
-      intro i w hi
-      have hadd : (h' + 1) + i = h' + (i + 1) := by omega
-      have h_idx : ((⟨h', v'⟩ : StackEntry Node) :: tl)[i + 1]? =
-          some ⟨h' + (i + 1), w⟩ := by
-        rw [← hadd]; simpa using hi
-      have hres := hOK (i + 1) w h_idx
-      rw [← hadd] at hres
-      exact hres
+      intro e he hle
+      exact hOK e (List.mem_cons_of_mem _ he) (by omega)
     · -- No merge; both loops just push.
       simp [localMergeLoop, globalMergeLoop, heq]
 
@@ -106,23 +100,10 @@ top. We capture this as a recursive predicate `stackBits` on
 `MergeOK (s + i) 0 stack` at every iteration.
 -/
 
-/-- The heights of the stack are the set-bit positions of `i`,
-lowest first (top of stack). Recursively: the top entry's height
-is the trailing-zero count of `i`, and the rest of the stack tracks
-`i` with that lowest bit cleared. -/
-def stackBits : Nat → List (StackEntry Node) → Prop
-  | 0, [] => True
-  | 0, _ :: _ => False
-  | _ + 1, [] => False
-  | n + 1, ⟨h, _⟩ :: rest =>
-      (n + 1) / 2 ^ h % 2 = 1 ∧
-      (n + 1) % 2 ^ h = 0 ∧
-      stackBits (n + 1 - 2 ^ h) rest
-
-/-- Trailing-zero invariant used inside `stackBits`: a positive
-`i` has `i % 2 ^ h = 0 ∧ i / 2 ^ h % 2 = 1` iff `h` is the index
-of the lowest set bit. We use the conjunction directly as input to
-the recursive case, so no separate lemma is needed. -/
+/-- The heights of the stack are exactly the set-bit positions of `i`:
+`i.testBit n` iff some entry in `stack` has height `n`. -/
+def stackBits (i : Nat) (stack : List (StackEntry Node)) : Prop :=
+  ∀ n, i.testBit n ↔ ∃ e ∈ stack, e.height = n
 
 private lemma two_pow_pos (h : Nat) : 0 < 2 ^ h := Nat.two_pow_pos h
 
