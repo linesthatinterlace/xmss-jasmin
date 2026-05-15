@@ -8,28 +8,27 @@ The recursive mathematical definition of what RFC 8391 Algorithm 9
 in `TreehashEquivalence.Impl` are proven equivalent to this spec
 in `TreehashEquivalence.Statements`.
 
-Three definitions, layered:
+A single recursion `specCore` builds root and trace together in
+one pass over the tree. The public-facing names `specRoot`,
+`specTrace`, and `treehashSpec` are thin projections / wrappers
+on top of it.
 
-* `specRoot h s` — the value of the Merkle root at height `h` over
-  leaves `[s, s + 2^h)`. Recursive in `h`.
-* `specTrace h s` — the ordered list of H-calls performed by a
-  left-to-right post-order unfolding of the same tree.
-* `treehashSpec h s` — packages the above into a `TreehashResult`
-  matching the shape of `treehashCF`: a singleton stack containing
-  the root entry, plus the trace.
+* `specCore P h s` — the (root, trace) pair for the height-`h`
+  subtree over leaves `[s, s + 2^h)`. The single source of truth.
+* `specRoot P h s` / `specTrace P h s` — first / second projections.
+* `treehashSpec P h s` — wraps `specCore` into a `TreehashResult`,
+  matching the shape produced by `treehashGlobal` / `treehashLocal`.
 
-The post-order on `specTrace` (left subtree, then right subtree,
-then root) matches Algorithm 9's call order: left leaves are pushed
-first, and the carry chain merges them up completely before any
-right-subtree leaf is touched.
+The traversal order baked into `specCore` is left-to-right
+post-order (left subtree, then right subtree, then root), and the
+trace is accumulated *newest-first* (root prepended), matching
+the iterative implementations' convention. So at the top level
+the trace reads as `root :: reverse(post-order traversal)`.
 
-Everything here is parameterised by:
-* `Node` — the type of hash outputs;
-* `leaf` — the leaf function (abstract);
-* `H`    — the keyed two-child hash (one call ≡ one RAND_HASH
-  invocation in RFC terms);
-* `ℓ τ` — the layer / tree-within-layer indices, inherited unchanged
-  by every emitted address.
+Everything here is parameterised by a `Params Node` record
+bundling the leaf function, the keyed combiner `H`, and the
+layer/tree coordinates `ℓ τ`. See `Basic.lean` for why those four
+travel together.
 
 This module deliberately does not import `Impl`: spec and
 implementation share only the data types in `Basic`.
@@ -40,35 +39,66 @@ namespace TreehashEquivalence
 section
 universe u
 variable {Node : Type u}
-variable (leaf : Nat → Node)
-variable (H : Address → Node → Node → Node)
-variable (ℓ τ : Nat)
+variable (P : Params Node)
 
-/-- Value of the Merkle root at height `h` over leaves `[s, s + 2^h)`. -/
-def specRoot : Nat → Nat → Node
-  | 0,     s => leaf s
+/-- Recursive core: build the root value and the H-call trace for
+the height-`h` subtree over leaves `[s, s + 2^h)` in a single
+pass. The trace is newest-first (root of this subtree prepended),
+matching the iterative-impl convention. -/
+def specCore : Nat → Nat → Node × List (HashCall Node)
+  | 0,     s => (P.leaf s, [])
   | h + 1, s =>
-      H (mergeAddr ℓ τ h s)
-        (specRoot h s)
-        (specRoot h (s + 2 ^ h))
+      let l := specCore h s
+      let r := specCore h (s + 2 ^ h)
+      let addr := mergeAddr P.ℓ P.τ h s
+      (P.H addr l.1 r.1, ⟨addr, l.1, r.1⟩ :: r.2 ++ l.2)
 
-/-- Ordered list of H-calls induced by a left-to-right post-order
-unfolding of the height-`h` tree starting at leaf `s`. -/
-def specTrace : Nat → Nat → List (HashCall Node)
-  | 0,     _ => []
-  | h + 1, s =>
-      specTrace h s ++
-      specTrace h (s + 2 ^ h) ++
-      [⟨mergeAddr ℓ τ h s,
-        specRoot (Node := Node) leaf H ℓ τ h s,
-        specRoot (Node := Node) leaf H ℓ τ h (s + 2 ^ h)⟩]
+/-- Value of the Merkle root at height `h` over leaves
+`[s, s + 2^h)`. First projection of `specCore`. -/
+def specRoot (h s : Nat) : Node :=
+  (specCore P h s).1
 
-/-- The full spec result, in the same shape as `treehashCF`. The
-stack is the singleton containing the root entry; the trace is
-`specTrace`. -/
+/-- Newest-first list of H-calls induced by a left-to-right
+post-order unfolding of the height-`h` tree starting at leaf `s`.
+Second projection of `specCore`. -/
+def specTrace (h s : Nat) : List (HashCall Node) :=
+  (specCore P h s).2
+
+/-- The full spec result, in the same shape as `treehashGlobal` /
+`treehashLocal`: a singleton stack containing the root entry,
+plus the trace. -/
 def treehashSpec (h s : Nat) : TreehashResult Node :=
-  ⟨[⟨h, specRoot (Node := Node) leaf H ℓ τ h s⟩],
-   specTrace (Node := Node) leaf H ℓ τ h s⟩
+  let p := specCore P h s
+  ⟨[⟨h, p.1⟩], p.2⟩
+
+/-! ## Recursive characterisations of the projections
+
+These were the original definitions of `specRoot` and `specTrace`.
+With the single-recursion `specCore` in place, they become
+theorems: small unfoldings of the projection through one step of
+`specCore`. -/
+
+@[simp] theorem specRoot_zero (s : Nat) :
+    specRoot P 0 s = P.leaf s := rfl
+
+@[simp] theorem specRoot_succ (h s : Nat) :
+    specRoot P (h + 1) s =
+      P.H (mergeAddr P.ℓ P.τ h s)
+        (specRoot P h s)
+        (specRoot P h (s + 2 ^ h)) := by
+  simp [specRoot, specCore]
+
+@[simp] theorem specTrace_zero (s : Nat) :
+    specTrace P 0 s = [] := rfl
+
+@[simp] theorem specTrace_succ (h s : Nat) :
+    specTrace P (h + 1) s =
+      ⟨mergeAddr P.ℓ P.τ h s,
+        specRoot P h s,
+        specRoot P h (s + 2 ^ h)⟩ ::
+        specTrace P h (s + 2 ^ h) ++
+        specTrace P h s := by
+  simp [specTrace, specRoot, specCore]
 
 end
 
