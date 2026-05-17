@@ -60,15 +60,16 @@ address treeIdx directly as `leafIdx / 2^(h + 1)`. This matches
 the reference implementation pattern in `xmss_core.c`. -/
 
 /-- Inner merge loop, global-address variant. The address at each
-merge has `treeIdx = leafIdx / 2^(h + 1)`, computed directly from
-the global leaf index without a per-merge accumulator. -/
+merge is `mergeAddr P.ℓ P.τ h leafIdx` — the spec's address
+constructor applied to the cascade-triggering leaf, which is one
+leaf of the subtree being built and therefore gives the parent's
+correct `treeIdx` directly. -/
 def globalMergeLoop (leafIdx : Nat) :
     StackEntry Node → TreehashResult Node → TreehashResult Node
   | ⟨h, v⟩, ⟨⟨h', v'⟩ :: rest, trace⟩ =>
       if h' = h then
-        let addr    : Address := ⟨P.ℓ, P.τ, h, leafIdx / 2 ^ (h + 1)⟩
-        let newNode := P.H addr v' v
-        globalMergeLoop leafIdx ⟨h + 1, newNode⟩ ⟨rest, ⟨addr, v', v⟩ :: trace⟩
+        let addr := mergeAddr P.ℓ P.τ h leafIdx
+        globalMergeLoop leafIdx ⟨h + 1, P.H addr v' v⟩ ⟨rest, ⟨addr, v', v⟩ :: trace⟩
       else ⟨⟨h, v⟩ :: ⟨h', v'⟩ :: rest, trace⟩
   | ⟨h, v⟩, ⟨[], trace⟩ => ⟨[⟨h, v⟩], trace⟩
 termination_by _ stk => stk.stack.length
@@ -103,8 +104,7 @@ def localMergeLoop (treeIdx : Nat) :
       if h' = h then
         let treeIdx' := (treeIdx - 1) / 2
         let addr     : Address := ⟨P.ℓ, P.τ, h, treeIdx'⟩
-        let newNode  := P.H addr v' v
-        localMergeLoop treeIdx' ⟨h + 1, newNode⟩ ⟨rest, ⟨addr, v', v⟩ :: trace⟩
+        localMergeLoop treeIdx' ⟨h + 1, P.H addr v' v⟩ ⟨rest, ⟨addr, v', v⟩ :: trace⟩
       else ⟨⟨h, v⟩ :: ⟨h', v'⟩ :: rest, trace⟩
   | ⟨h, v⟩, ⟨[], trace⟩ => ⟨[⟨h, v⟩], trace⟩
 termination_by _ stk => stk.stack.length

@@ -88,28 +88,35 @@ structure Address where
   treeIdx    : Nat
   deriving DecidableEq, Repr
 
-/-- The address used for a single hash-tree merge, expressed in
-global coordinates.
+/-- The address used for a single hash-tree merge of two
+height-`childHeight` siblings into a height-`(childHeight + 1)`
+parent.
 
-Given the merge combines two height-`childHeight` siblings whose
-**left** child starts at leaf-index `leftStart`, the resulting
-parent has index `leftStart / 2^(childHeight + 1)` at the layer
-above.
+The parent's `treeIdx` — its index among nodes at the parent's
+layer — is `leafIdx / 2 ^ (childHeight + 1)`. This is well-defined
+from *any* leaf in the parent's subtree: that subtree spans
+`2 ^ (childHeight + 1)` aligned leaves, all of which give the same
+quotient. The two call sites exploit this freedom differently:
+`Spec.lean` passes the subtree's leftmost leaf (its starting
+index `s`); `Impl.lean`'s global model passes the leaf that
+triggered the merge cascade (the rightmost leaf of the subtree).
 
 `childHeight` matches the RFC's `ADRS.getTreeHeight()` *during*
-the merge call (Algorithm 9 sets it to `0` initially and
-post-increments after each call).
+the merge call: Algorithm 9 sets it to `0` initially and
+post-increments after each call, so the field carries the
+children's height, not the parent's.
 
-The global-form `treeIdx` here is what the RFC computes locally
-by iterating `(idx - 1) / 2` (line 1370) from the leaf index. The
-equivalence of the two formulations is proven as
-`treehashLocal_eq_treehashGlobal` in `Statements.lean`. -/
+The RFC (Algorithm 9, line 1370) computes the same `treeIdx`
+*locally*, by iterating `(idx - 1) / 2` from the triggering leaf
+rather than by a single division. The arithmetic identity that
+makes those two formulations agree is what
+`treehashLocal_eq_treehashGlobal` (in `Statements.lean`) proves. -/
 @[simps]
-def mergeAddr (ℓ τ childHeight leftStart : Nat) : Address where
+def mergeAddr (ℓ τ childHeight leafIdx : Nat) : Address where
   layer      := ℓ
   tree       := τ
   treeHeight := childHeight
-  treeIdx    := leftStart / 2 ^ (childHeight + 1)
+  treeIdx    := leafIdx / 2 ^ (childHeight + 1)
 
 /-! ## H-call trace -/
 
@@ -123,17 +130,21 @@ structure HashCall (Node : Type u) where
 
 /-! ## Stack and result -/
 
-/-- Stack entry: just height and value, matching RFC 8391 §4.1.6
-line 1330 ("the height of a node is stored alongside a node's
-value on the stack"). -/
+/-- The height of a node is stored alongside a node's
+value on the stack. -/
 structure StackEntry (Node : Type u) where
   height : Nat
   value  : Node
   deriving Repr
 
+/-- The treehash working stack: a list of `StackEntry`s, top-of-stack
+at the head. Abbreviation for ergonomic signatures and for
+namespacing invariants (e.g. `Stack.Encodes`). -/
+abbrev Stack (Node : Type u) := List (StackEntry Node)
+
 /-- A treehash result: final stack plus reverse-ordered H-call trace. -/
 structure TreehashResult (Node : Type u) where
-  stack : List (StackEntry Node)
+  stack : Stack Node
   trace : List (HashCall Node)
   deriving Repr
 

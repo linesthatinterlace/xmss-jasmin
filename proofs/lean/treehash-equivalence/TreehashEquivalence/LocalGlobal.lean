@@ -34,7 +34,7 @@ exactly `h + i`, then bit `h + i` of `leafIdx` is set. This is the
 single fact needed at every merge step to turn the local update
 `(leafIdx/2^k - 1) / 2` into the global formula `leafIdx / 2^(k+1)`
 — because that identity holds iff `leafIdx / 2^k` is odd. -/
-def MergeOK (leafIdx h : Nat) (stack : List (StackEntry Node)) : Prop :=
+def MergeOK (leafIdx h : Nat) (stack : Stack Node) : Prop :=
   ∀ i v, stack[i]? = some ⟨h + i, v⟩ → leafIdx / 2 ^ (h + i) % 2 = 1
 
 private lemma div_pow_succ (leafIdx h : Nat) :
@@ -60,7 +60,7 @@ no-merge branch is identical between the two; the merge branch
 matches because `MergeOK` provides the oddness that turns the
 local update into the global formula. -/
 theorem mergeLoop_eq (P : Params Node) :
-    ∀ (stack : List (StackEntry Node)) (trace : List (HashCall Node))
+    ∀ (stack : Stack Node) (trace : List (HashCall Node))
       (h : Nat) (v : Node) (leafIdx : Nat),
       MergeOK leafIdx h stack →
       localMergeLoop P (leafIdx / 2 ^ h) ⟨h, v⟩ ⟨stack, trace⟩
@@ -110,7 +110,7 @@ top. We capture this as a recursive predicate `stackBits` on
 lowest first (top of stack). Recursively: the top entry's height
 is the trailing-zero count of `i`, and the rest of the stack tracks
 `i` with that lowest bit cleared. -/
-def stackBits : Nat → List (StackEntry Node) → Prop
+def stackBits : Nat → Stack Node → Prop
   | 0, [] => True
   | 0, _ :: _ => False
   | _ + 1, [] => False
