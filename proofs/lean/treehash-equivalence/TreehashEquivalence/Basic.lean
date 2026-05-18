@@ -3,178 +3,131 @@ import Mathlib.Tactic.Simps.Basic
 /-!
 # Basic data types
 
-The shared data underpinning both the recursive treehash spec
-(`Spec.lean`) and the iterative implementations (`Impl.lean`):
+Shared definitions used by the recursive spec (`Spec.lean`) and
+the iterative implementations (`Impl.lean`):
 
-* `Address`           — RFC 8391 §2.5 hash-tree address (type 2).
-* `mergeAddr`         — global-coordinate constructor for merge
-                        addresses.
-* `HashCall`          — one keyed-merge call: address + two child
-                        values.
-* `StackEntry`        — a (height, value) pair, matching what RFC
-                        §4.1.6 line 1330 says is stored on the
-                        treehash stack.
-* `TreehashResult`    — final stack + reverse-ordered H-call trace.
-* `Params`            — the four ambient parameters of a treehash
-                        run (`leaf`, `H`, `ℓ`, `τ`) bundled into a
-                        single record. They are fixed for the
-                        whole run and never interact, so bundling
-                        them avoids threading four section
-                        variables through every signature.
+* `Address`        — RFC 8391 §2.5 hash-tree address (type 2).
+* `mergeAddr`      — builds the address for a merge from global
+                     coordinates.
+* `HashCall`       — one merge call: address + two children.
+* `StackEntry`     — `(height, value)` pair held on the treehash
+                     stack (RFC §4.1.6, line 1330).
+* `TreehashResult` — final stack + reverse-ordered call trace.
+* `Params`         — the four run-wide parameters (`leaf`, `H`,
+                     `l`, `t`), bundled to avoid threading them
+                     through every signature.
 
-All three of the spec, the global-address implementation, and the
-local-address implementation produce results in this shape. The
-information about where each subtree's leaf-span starts is
-threaded through the inner merge loop as a parameter (`leafIdx`
-in the global model; `treeIdx` in the local / RFC model) rather
-than stored on the stack.
+All three models produce results in this shape. The starting
+leaf of each subtree is threaded as a parameter to the merge
+loop (`leafIdx` in the global model, `treeIdx` in the local /
+RFC model) rather than stored on the stack.
 -/
 
 namespace TreehashEquivalence
 
 /-! ## Address (RFC 8391 §2.5)
 
-`Address` is the abstract representation of an RFC 8391 hash-tree
-(type-2) `ADRS` value used inside Algorithm 9. The four fields
-modelled are:
+Abstract model of the type-2 `ADRS` value used in Algorithm 9.
+Fields:
 
 * `layer`      — XMSS-MT layer (`0` for single-tree XMSS).
 * `tree`       — XMSS-MT tree index within the layer.
-* `treeHeight` — the children's height at a merge. RFC convention:
-  `ADRS.getTreeHeight()` during a hash call equals the height of
-  the *children* being combined, not the parent being produced.
-  (Algorithm 9 initialises it to `0` and post-increments after
-  each call.)
-* `treeIdx`  — the parent node's index at the layer above the
-  children. The RFC computes this *locally* by iterating
-  `(idx - 1) / 2` from the leaf index; `mergeAddr` gives the same
-  value directly from *global* coordinates, and `Impl.lean`
-  bridges the two.
+* `treeHeight` — at a merge that produces a height-`(h+1)`
+  parent, this field is set to `h`, the *children's* height.
+  The convention comes from RFC Algorithm 9 (the field starts at
+  `0` and is only incremented after each call returns) and is
+  followed throughout this development — spec and implementations
+  alike — via the `mergeAddr` constructor.
+* `treeIdx`    — index of the parent node. The RFC computes this
+  locally by iterating `(idx - 1) / 2` from the leaf; `mergeAddr`
+  computes it directly from global coordinates, and `Impl.lean`
+  proves the two agree.
 
-### What this model omits
+### Omitted from the model
 
-* `type` — constant (=2) throughout Algorithm 9. Eliding is sound
-  because the proof's scope is one type-2 address; the OTS / L-tree
-  cases are out of scope.
-* `keyAndMask` — mutated inside the underlying RFC `RAND_HASH`
-  procedure across three PRF calls (RFC §4.1.4, Algorithm 7).
-  Eliding collapses the (3 PRF + 1 raw hash) expansion into a
-  single abstract call, matching the type signature of the
-  combiner `H` used throughout this development.
-* Padding (always zero).
+* `type` — always `2` in Algorithm 9; OTS / L-tree are out of
+  scope.
+* `keyAndMask` — mutated inside `RAND_HASH` across three PRF
+  calls (RFC §4.1.4). Collapsed into a single abstract `H`,
+  matching the combiner used throughout this development.
+* Padding — always zero.
 
 ### Granularity
 
-`H : Address → Node → Node → Node` corresponds to **one keyed
-merge step** — what the RFC calls one `RAND_HASH` invocation —
-not one raw hash. Every entry of a trace is one merge.
-Unfolding the keyed step into its underlying primitives is out
-of scope.
+`H : Address → Node → Node → Node` is one keyed merge step (one
+`RAND_HASH` invocation), not one raw hash. Each trace entry is
+one merge.
 
 ### Field types
 
-All four fields are `Nat`. The RFC representation is 32 bytes,
-eight 32-bit big-endian words. Bridging this abstract `Address`
-to the byte layout (including the "fits in u32" obligation per
-field) is a separate, currently unaddressed concern.
+All `Nat`. The RFC wire format is 32 bytes (eight 32-bit
+big-endian words). Bridging this model to the byte layout (and
+the "fits in u32" obligation) is out of scope.
 -/
 
 /-- Hash-tree address (RFC 8391 §2.5, type 2). See the section
-docstring above for what is and is not modelled. -/
-structure Address where
-  layer      : Nat
-  tree       : Nat
+docstring above for what is modelled. -/
+structure Address (l : Nat) (t : Nat) where
   treeHeight : Nat
   treeIdx    : Nat
   deriving DecidableEq, Repr
 
-/-- The address used for a single hash-tree merge of two
-height-`childHeight` siblings into a height-`(childHeight + 1)`
-parent.
-
-The parent's `treeIdx` — its index among nodes at the parent's
-layer — is `leafIdx / 2 ^ (childHeight + 1)`. This is well-defined
-from *any* leaf in the parent's subtree: that subtree spans
-`2 ^ (childHeight + 1)` aligned leaves, all of which give the same
-quotient. The two call sites exploit this freedom differently:
-`Spec.lean` passes the subtree's leftmost leaf (its starting
-index `s`); `Impl.lean`'s global model passes the leaf that
-triggered the merge cascade (the rightmost leaf of the subtree).
-
-`childHeight` matches the RFC's `ADRS.getTreeHeight()` *during*
-the merge call: Algorithm 9 sets it to `0` initially and
-post-increments after each call, so the field carries the
-children's height, not the parent's.
-
-The RFC (Algorithm 9, line 1370) computes the same `treeIdx`
-*locally*, by iterating `(idx - 1) / 2` from the triggering leaf
-rather than by a single division. The arithmetic identity that
-makes those two formulations agree is what
-`treehashLocal_eq_treehashGlobal` (in `Statements.lean`) proves. -/
-@[simps]
-def mergeAddr (ℓ τ childHeight leafIdx : Nat) : Address where
-  layer      := ℓ
-  tree       := τ
-  treeHeight := childHeight
-  treeIdx    := leafIdx / 2 ^ (childHeight + 1)
+instance : ToString (Address l t) := ⟨fun a => toString (a.treeHeight, a.treeIdx)⟩
 
 /-! ## H-call trace -/
 
-/-- A single keyed-merge call: the address used and the two child
-values passed (left, right). One per merge step in the trace. -/
-structure HashCall (Node : Type u) where
-  addr  : Address
+/-- One merge call: the address used and the two children
+(left, right). -/
+structure HashCall (Node : Type u) (l : Nat) (t : Nat) where
+  addr  : Address l t
   left  : Node
   right : Node
   deriving Repr
 
+instance [ToString Node] : ToString (HashCall Node l t) :=
+  ⟨fun h => toString (h.addr, h.left, h.right)⟩
+
 /-! ## Stack and result -/
 
-/-- The height of a node is stored alongside a node's
-value on the stack. -/
+/-- A node value paired with its height. -/
 structure StackEntry (Node : Type u) where
   height : Nat
   value  : Node
   deriving Repr
 
-/-- The treehash working stack: a list of `StackEntry`s, top-of-stack
-at the head. Abbreviation for ergonomic signatures and for
-namespacing invariants (e.g. `Stack.Encodes`). -/
+/-- Treehash working stack; top-of-stack at the head. An
+abbreviation, mainly so invariants can live in a `Stack`
+namespace. -/
 abbrev Stack (Node : Type u) := List (StackEntry Node)
 
-/-- A treehash result: final stack plus reverse-ordered H-call trace. -/
-structure TreehashResult (Node : Type u) where
+/-- Treehash output: the final stack and the trace of merge calls
+(reverse order, newest first). -/
+structure TreehashResult (Node : Type u) (l : Nat) (t : Nat) where
   stack : Stack Node
-  trace : List (HashCall Node)
+  trace : List (HashCall Node l t)
   deriving Repr
 
 /-! ## Run parameters
 
-The four pieces of configuration for a single treehash run:
+Four pieces of configuration for one treehash run:
 
-* `leaf` — the leaf function. Different trees use different leaf
-  functions in real XMSS (`gen_leaf_wots` keyed by an OTS address
-  that embeds `ℓ`, `τ`, the leaf index, and the seeds); that
-  dependence is baked into the *choice* of function value and is
-  invisible to the proof, which treats `leaf` opaquely.
-* `H` — the keyed two-child hash (one call ≡ one RAND_HASH
-  invocation in RFC terms). Universal across trees: the address
-  argument carries the per-call keying material.
-* `ℓ`, `τ` — XMSS-MT layer and tree-within-layer. Inherited
-  unchanged by every emitted address.
+* `leaf` — the leaf function. In real XMSS this is
+  `gen_leaf_wots` keyed by an OTS address embedding `l`, `t`,
+  the leaf index, and the seeds; the proof treats `leaf` as
+  opaque, so that dependence is hidden in the chosen function
+  value.
+* `H` — the keyed merge (one call ≡ one RAND_HASH). Universal
+  across trees: the address argument carries the per-call key.
+* `l`, `t` — XMSS-MT layer and tree. Inherited unchanged by
+  every emitted address.
 
-These four are fixed for the duration of one treehash call and
-never interact with each other inside the computation; bundling
-them is purely an ergonomic move to avoid threading four section
-variables through every signature. -/
+These never interact during the computation. Bundling is purely
+ergonomic — it avoids threading four section variables through
+every signature. -/
 
-/-- Bundle of the four parameters needed to run treehash:
-the leaf function, the keyed combiner, and the XMSS-MT
-layer/tree coordinates. -/
-structure Params (Node : Type u) where
+/-- The four parameters of a treehash run. -/
+structure Params (Node : Type u) (l : Nat) (t : Nat) where
   leaf : Nat → Node
-  H    : Address → Node → Node → Node
-  ℓ    : Nat
-  τ    : Nat
+  H    : HashCall Node l t → Node
 
 end TreehashEquivalence

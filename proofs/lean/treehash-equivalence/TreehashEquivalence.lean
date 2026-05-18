@@ -1,5 +1,4 @@
 import TreehashEquivalence.Basic
-import TreehashEquivalence.Spec
-import TreehashEquivalence.Impl
-import TreehashEquivalence.LocalGlobal
-import TreehashEquivalence.Statements
+import TreehashEquivalence.Recursive
+import TreehashEquivalence.IterLocal
+import TreehashEquivalence.IterGlobal
