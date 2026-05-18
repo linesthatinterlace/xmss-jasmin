@@ -3,19 +3,21 @@ import Mathlib.Tactic.Simps.Basic
 /-!
 # Basic data types
 
-Shared definitions used by the recursive spec (`Spec.lean`) and
-the iterative implementations (`Impl.lean`):
+Shared definitions used by the recursive spec (`Recursive.lean`)
+and the iterative implementations (`IterLocal.lean`,
+`IterGlobal.lean`):
 
 * `Address`        — RFC 8391 §2.5 hash-tree address (type 2).
-* `mergeAddr`      — builds the address for a merge from global
-                     coordinates.
 * `HashCall`       — one merge call: address + two children.
-* `StackEntry`     — `(height, value)` pair held on the treehash
-                     stack (RFC §4.1.6, line 1330).
-* `TreehashResult` — final stack + reverse-ordered call trace.
-* `Params`         — the four run-wide parameters (`leaf`, `H`,
-                     `l`, `t`), bundled to avoid threading them
-                     through every signature.
+* `Stack`          — treehash working stack: a list of
+                     `(height, value)` pairs (RFC §4.1.6,
+                     line 1330), top-of-stack at the head.
+* `TreehashState`  — stack + reverse-ordered call trace, carried
+                     through the merge loops and returned at the
+                     top level.
+* `Params`         — the run-wide parameters (`leaf`, `H`),
+                     bundled to avoid threading them through
+                     every signature.
 
 All three models produce results in this shape. The starting
 leaf of each subtree is threaded as a parameter to the merge
@@ -23,7 +25,7 @@ loop (`leafIdx` in the global model, `treeIdx` in the local /
 RFC model) rather than stored on the stack.
 -/
 
-namespace TreehashEquivalence
+namespace Treehash
 
 /-! ## Address (RFC 8391 §2.5)
 
@@ -54,7 +56,7 @@ Fields:
 
 ### Granularity
 
-`H : Address → Node → Node → Node` is one keyed merge step (one
+`H : HashCall Node l t → Node` is one keyed merge step (one
 `RAND_HASH` invocation), not one raw hash. Each trace entry is
 one merge.
 
@@ -87,22 +89,17 @@ structure HashCall (Node : Type u) (l : Nat) (t : Nat) where
 instance [ToString Node] : ToString (HashCall Node l t) :=
   ⟨fun h => toString (h.addr, h.left, h.right)⟩
 
-/-! ## Stack and result -/
+/-! ## Stack and state -/
 
-/-- A node value paired with its height. -/
-structure StackEntry (Node : Type u) where
-  height : Nat
-  value  : Node
-  deriving Repr
+/-- Treehash working stack: a list of `(height, value)` pairs,
+top-of-stack at the head. -/
+abbrev Stack (Node : Type u) := List (Nat × Node)
 
-/-- Treehash working stack; top-of-stack at the head. An
-abbreviation, mainly so invariants can live in a `Stack`
-namespace. -/
-abbrev Stack (Node : Type u) := List (StackEntry Node)
-
-/-- Treehash output: the final stack and the trace of merge calls
-(reverse order, newest first). -/
-structure TreehashResult (Node : Type u) (l : Nat) (t : Nat) where
+/-- The state of a treehash computation: the current working
+stack and the trace of merge calls so far (newest first). Carried
+through the merge loops as both input and output; the top-level
+treehash functions return the final value. -/
+structure TreehashState (Node : Type u) (l : Nat) (t : Nat) where
   stack : Stack Node
   trace : List (HashCall Node l t)
   deriving Repr
@@ -130,4 +127,4 @@ structure Params (Node : Type u) (l : Nat) (t : Nat) where
   leaf : Nat → Node
   H    : HashCall Node l t → Node
 
-end TreehashEquivalence
+end Treehash

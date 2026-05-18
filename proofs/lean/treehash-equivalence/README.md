@@ -1,1 +1,1 @@
-# TreehashEquivalence
+# Treehash
