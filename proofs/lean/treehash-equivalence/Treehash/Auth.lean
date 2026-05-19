@@ -149,9 +149,7 @@ theorem treehashRecursiveWithAuthAux_snd (L h s : Nat)
 `s = 0`). -/
 theorem treehashRecursiveWithAuth_snd (L H : Nat) (hL : L < 2 ^ H) (j : Fin H) :
     (treehashRecursiveWithAuth P L H).snd j = authNode P L j.val := by
-  apply treehashRecursiveWithAuthAux_snd L H 0
-  · exact ⟨0, by simp⟩
-  · exact ⟨Nat.zero_le _, by simpa using hL⟩
+  apply treehashRecursiveWithAuthAux_snd L H 0 (Nat.dvd_zero (2 ^ H)) (by grind)
 
 end
 
