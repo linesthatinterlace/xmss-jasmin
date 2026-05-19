@@ -15,7 +15,7 @@ are proven equivalent to this definition elsewhere.
 
 Traversal is left-to-right post-order (left subtree, right subtree, root).
 
-Parameters travel in a `Params Node` record — see `Basic.lean`..
+Parameters travel in a `Params Node` record — see `Basic.lean`.
 -/
 
 namespace Treehash
@@ -27,16 +27,16 @@ variable (P : Params Node l t)
 
 def treehashRecursive (h : Nat) (s : Nat) : Node := match h with
   | 0 => P.leaf s | h + 1 =>
-    P.H ⟨⟨h, s / 2^(h + 1)⟩, treehashRecursive h s, treehashRecursive h (s + 2 ^ h)⟩
+    P.H (mkCall h (s / 2^(h + 1)) (treehashRecursive h s) (treehashRecursive h (s + 2 ^ h)))
 
 variable {P}
 
-@[simp] theorem treehashRecursive_zero (s : Nat) :
+@[simp, grind =] theorem treehashRecursive_zero (s : Nat) :
     treehashRecursive P 0 s = P.leaf s := rfl
 
-@[simp] theorem treehashRecursive_succ (h s : Nat) :
-    treehashRecursive P (h + 1) s =
-      P.H ⟨⟨h, s / 2^(h + 1)⟩, treehashRecursive P h s, treehashRecursive P h (s + 2 ^ h)⟩ := rfl
+@[simp, grind =] theorem treehashRecursive_succ (h s : Nat) :
+    treehashRecursive P (h + 1) s = P.H (mkCall h (s / 2^(h + 1))
+    (treehashRecursive P h s) (treehashRecursive P h (s + 2 ^ h))) := rfl
 
 end
 

@@ -40,10 +40,7 @@ Fields:
   `0` and is only incremented after each call returns) and is
   followed throughout this development — spec and implementations
   alike — via the `mergeAddr` constructor.
-* `treeIdx`    — index of the parent node. The RFC computes this
-  locally by iterating `(idx - 1) / 2` from the leaf; `mergeAddr`
-  computes it directly from global coordinates, and `Impl.lean`
-  proves the two agree.
+* `treeIdx`    — index of the parent node.
 
 ### Omitted from the model
 
@@ -117,5 +114,8 @@ every signature. -/
 structure Params (Node : Type u) (l : Nat) (t : Nat) where
   leaf : Nat → Node
   H    : HashCall Node l t → Node
+
+
+@[simps] def mkCall (h : Nat) (i : Nat) (ln rn : Node) : HashCall Node l t := ⟨⟨h, i⟩, ln, rn⟩
 
 end Treehash

@@ -44,8 +44,7 @@ def localMerge (treeIdx : Nat) (h : Nat) (v : Node) : Stack Node → Stack Node
   | [] => [⟨h, v⟩] | ⟨h', v'⟩ :: rest =>
     if h' = h then
       let treeIdx' := (treeIdx - 1) / 2
-      let call := ⟨⟨h, treeIdx'⟩, v', v⟩
-      localMerge treeIdx' (h + 1) (P.H call) rest
+      localMerge treeIdx' (h + 1) (P.H (mkCall h treeIdx' v' v)) rest
     else ⟨h, v⟩ :: ⟨h', v'⟩ :: rest
 
 /-- xmss-reference-style merge step: each cascade level computes its
@@ -53,8 +52,7 @@ address directly from the fixed triggering leaf index. -/
 def globalMerge (leafIdx : Nat) (h : Nat) (v : Node) : Stack Node → Stack Node
   | [] => [⟨h, v⟩] | ⟨h', v'⟩ :: rest =>
     if h' = h then
-      let call := ⟨⟨h, leafIdx / 2^(h + 1)⟩, v', v⟩
-      globalMerge leafIdx (h + 1) (P.H call) rest
+      globalMerge leafIdx (h + 1) (P.H (mkCall h (leafIdx / 2^(h + 1)) v' v)) rest
     else  ⟨h, v⟩ :: ⟨h', v'⟩ :: rest
 
 /-! ## Merge unfolding lemmas -/
@@ -67,8 +65,7 @@ variable {P}
 @[grind =] theorem localMerge_cons (i h : Nat) (v : Node) (se : Nat × Node)
     (rest : Stack Node) :
     localMerge P i h v (se :: rest) = if se.1 = h then
-      localMerge P ((i - 1) / 2) (h + 1)
-        (P.H ⟨⟨h, (i - 1) / 2⟩, se.2, v⟩) rest else
+      localMerge P ((i - 1) / 2) (h + 1) (P.H (mkCall h  ((i - 1) / 2) se.2 v)) rest else
       (h, v) :: se :: rest := rfl
 
 @[grind =] theorem localMerge_of_fst_head_ne {i h : Nat} {v : Node} {stk : Stack Node}
@@ -83,7 +80,7 @@ variable {P}
     (rest : Stack Node) :
     globalMerge P li h v (se :: rest) = if se.1 = h then
       globalMerge P li (h + 1)
-        (P.H ⟨⟨h, li / 2^(h + 1)⟩, se.2, v⟩) rest else
+        (P.H (mkCall h (li / 2^(h + 1)) se.2 v)) rest else
       (h, v) :: se :: rest := rfl
 
 @[grind =] theorem globalMerge_of_fst_head_ne {li h : Nat} {v : Node} {stk : Stack Node}

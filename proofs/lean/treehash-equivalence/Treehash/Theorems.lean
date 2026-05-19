@@ -58,24 +58,24 @@ theorem treehashLocalOn_eq (h s : Nat) (stk : Stack Node)
     have H2 := IH (s + 2^h) ((h, treehashRecursive P h s) :: stk) (by grind)
     rw [localMerge_cons, if_pos rfl, Nat.add_div_right _ (Nat.two_pow_pos h),
       Nat.add_one_sub_one (s / 2^h)] at H2
-    rw [treehashLocalOn_succ, IH s stk (by grind),
+    rw [treehashLocalOn_succ, H1,
         localMerge_of_fst_head_ne (by grind), H2,
         treehashRecursive_succ, Nat.pow_succ, Nat.div_div_eq_div_mul]
 
 /-- Global model: agrees with the recursive root when `2^h ∣ s`,
 threading `leafIdx = s + 2^h - 1` (the *rightmost* leaf) into the
 merge cascade. -/
-theorem treehashGlobalOn_eq (h s : Nat) (stk : Stack Node)
-    (hstk : ∀ p ∈ stk, h ≤ p.1) (h2s : 2^h ∣ s) :
+theorem treehashGlobalOn_eq (h s : Nat) (h2s : 2^h ∣ s) (stk : Stack Node)
+    (hstk : ∀ p ∈ stk, h ≤ p.1) :
     treehashGlobalOn P h s stk =
       globalMerge P (s + (2^h - 1)) h (treehashRecursive P h s) stk := by
   induction h generalizing s stk with
-  | zero => simp
+  | zero => rfl
   | succ h IH =>
-    have h2h  : 2^h ∣ s         := Nat.dvd_trans (Nat.pow_dvd_pow _ (Nat.le_succ _)) h2s
+    have h2h : 2^h ∣ s := Nat.dvd_trans (Nat.pow_dvd_pow _ (Nat.le_succ _)) h2s
     have h2hr : 2^h ∣ (s + 2^h) := Nat.dvd_add h2h (Nat.dvd_refl _)
-    have H1 := IH s stk (by grind) h2h
-    have H2 := IH (s + 2^h) ((h, treehashRecursive P h s) :: stk) (by grind) h2hr
+    have H1 := IH s h2h stk (by grind)
+    have H2 := IH (s + 2^h)  h2hr ((h, treehashRecursive P h s) :: stk) (by grind)
     rw [add_assoc, ← Nat.add_sub_assoc Nat.one_le_two_pow, ← Nat.two_pow_succ,
       globalMerge_cons, if_pos rfl, Nat.add_div_of_dvd_right h2s,
       Nat.div_eq_of_lt (Nat.sub_one_lt (Nat.two_pow_pos _).ne'), add_zero] at H2
