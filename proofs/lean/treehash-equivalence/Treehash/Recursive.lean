@@ -27,7 +27,7 @@ variable (P : Params Node l t)
 
 def treehashRecursive (h : Nat) (s : Nat) : Node := match h with
   | 0 => P.leaf s | h + 1 =>
-    P.H ⟨⟨h, s / 2^h / 2⟩, treehashRecursive h s, treehashRecursive h (s + 2 ^ h)⟩
+    P.H ⟨⟨h, s / 2^(h + 1)⟩, treehashRecursive h s, treehashRecursive h (s + 2 ^ h)⟩
 
 variable {P}
 
@@ -36,7 +36,7 @@ variable {P}
 
 @[simp] theorem treehashRecursive_succ (h s : Nat) :
     treehashRecursive P (h + 1) s =
-      P.H ⟨⟨h, s / 2^h / 2⟩, treehashRecursive P h s, treehashRecursive P h (s + 2 ^ h)⟩ := rfl
+      P.H ⟨⟨h, s / 2^(h + 1)⟩, treehashRecursive P h s, treehashRecursive P h (s + 2 ^ h)⟩ := rfl
 
 end
 
