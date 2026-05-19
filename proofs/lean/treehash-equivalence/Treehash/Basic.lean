@@ -95,15 +95,6 @@ instance [ToString Node] : ToString (HashCall Node l t) :=
 top-of-stack at the head. -/
 abbrev Stack (Node : Type u) := List (Nat × Node)
 
-/-- The state of a treehash computation: the current working
-stack and the trace of merge calls so far (newest first). Carried
-through the merge loops as both input and output; the top-level
-treehash functions return the final value. -/
-structure TreehashState (Node : Type u) (l : Nat) (t : Nat) where
-  stack : Stack Node
-  trace : List (HashCall Node l t)
-  deriving Repr
-
 /-! ## Run parameters
 
 Four pieces of configuration for one treehash run:
