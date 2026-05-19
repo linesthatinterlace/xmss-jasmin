@@ -1,11 +1,11 @@
 import Lake
 open Lake DSL
 
-package "TreehashEquivalence" where
+package "Treehash" where
   version := v!"0.1.0"
 
 require mathlib from git
   "https://github.com/leanprover-community/mathlib4.git" @ "v4.29.1"
 
 @[default_target]
-lean_lib «TreehashEquivalence» where
+lean_lib «Treehash» where
