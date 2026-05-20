@@ -10,3 +10,6 @@
 [submodule "third_party/libjade"]
 	path = third_party/libjade
 	url = https://github.com/formosa-crypto/libjade.git
+[submodule "proofs"]
+	path = proofs
+	url = git@github.com:linesthatinterlace/xmss-proofs.git
