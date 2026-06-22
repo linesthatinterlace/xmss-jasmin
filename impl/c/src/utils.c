@@ -16,13 +16,14 @@
  * ull_to_bytes() - Encode a uint64_t in big-endian into len bytes.
  *
  * RFC 8391 §2.4: toByte(x, n) converts x to an n-byte big-endian string.
- * Writes exactly len bytes; asserts len <= 8 and that val fits in len bytes.
+ * Writes exactly len bytes. n may exceed 8 (e.g. toByte(idx, n) in H_msg and
+ * toByte(idx, 32) in PRF for r): the leading len-8 bytes are zero-padded since
+ * val always fits in 64 bits. For len < 8, asserts val fits in len bytes.
  */
 void ull_to_bytes(uint8_t *out, uint32_t len, uint64_t val)
 {
     uint32_t i;
-    assert(len <= 8);
-    assert(len == 8 || (val >> (len * 8)) == 0);
+    assert(len >= 8 || (val >> (len * 8)) == 0);
     for (i = len; i > 0; i--) {
         out[i - 1] = (uint8_t)(val & 0xFF);
         val >>= 8;
