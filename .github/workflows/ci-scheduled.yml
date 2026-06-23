@@ -96,7 +96,7 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-riscv64.cmake
           -DCMAKE_BUILD_TYPE=Release
           -DXMSS_WERROR=ON
-          -DXMSS_TEST_TIMEOUT_SCALE=2
+          -DXMSS_TEST_TIMEOUT_SCALE=4
 
       - name: Build
         run: cmake --build build-rv
